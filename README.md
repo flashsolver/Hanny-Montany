@@ -13,7 +13,7 @@ All image editing runs 100% on-device in browser memory. Photos are never upload
 | **Stickers** | 18 vector disguise and censor stamps with 360° rotate, scale, and opacity controls. |
 | **Auto Detect** | Client-side heuristic tools for rough face bounding, text-like edge density, and object erase. |
 
-Tools include a 2.5× floating loupe, hold-to-compare original (<kbd>Space</kbd>), rectangle/oval shape masks, and mask inversion (spotlight background blur).
+Tools include hold-to-compare original (<kbd>Space</kbd>), rectangle/oval shape masks, and mask inversion (spotlight background blur).
 
 ## Installation (PWA)
 

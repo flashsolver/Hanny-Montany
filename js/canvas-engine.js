@@ -1,4 +1,4 @@
-// Interactive viewport, high-DPI canvas management, dual-layer compositing, and loupe magnifier
+// Interactive viewport, high-DPI canvas management, and dual-layer compositing
 
 import { FilterEngine } from './filters.js';
 import { BrushEngine } from './brush-engine.js';
@@ -13,16 +13,6 @@ export class CanvasEngine {
     this.displayCanvas.className = 'main-display-canvas';
     this.displayCtx = this.displayCanvas.getContext('2d');
     this.container.appendChild(this.displayCanvas);
-
-    // Create floating Loupe / Magnifier element
-    this.loupe = document.createElement('div');
-    this.loupe.className = 'magnifier-loupe hidden';
-    this.loupeCanvas = document.createElement('canvas');
-    this.loupeCanvas.width = 140;
-    this.loupeCanvas.height = 140;
-    this.loupeCtx = this.loupeCanvas.getContext('2d');
-    this.loupe.appendChild(this.loupeCanvas);
-    this.container.appendChild(this.loupe);
 
     // Internal Full-Resolution Offscreen Buffers
     this.sourceCanvas = document.createElement('canvas');
@@ -48,7 +38,6 @@ export class CanvasEngine {
     this.stickers = new StickerEngine(this.displayCanvas);
 
     // Inspection & HUD flags
-    this.loupeEnabled = true;
     this.showOriginalOnly = false;
 
     // Drawing Shape ('brush' | 'rect' | 'oval')
@@ -64,11 +53,11 @@ export class CanvasEngine {
     this.maxScale = 5.0;
 
     // Filter settings
-    this.currentFilter = 'natural_blur'; // 'natural_blur' | 'heavy_blur' | 'mosaic' | 'hex_mosaic' | 'frosted' | 'motion' | 'brush_stroke' ...
+    this.currentFilter = 'natural_blur';
     this.filterIntensity = 50;
     this.filterSize = 50;
     this.filterColor = '#000000';
-    this.filterAngle = 0; // 0° Horizontal brush stroke smear
+    this.filterAngle = 0;
 
     // State & History (~150MB dynamic memory budget)
     this.history = [];
@@ -81,92 +70,92 @@ export class CanvasEngine {
     this.aiPreviewBoxes = null;
     this.onAIBoxToggled = null;
 
-    this.resetZoomBtn = document.getElementById('btn-reset-zoom');
-
-    // Multi-touch / gesture state
+    // Interaction state
     this.activePointers = new Map();
-    this.prevPinchDist = 0;
     this.isPanning = false;
+    this.prevPinchDist = 0;
     this.panStart = { x: 0, y: 0 };
 
     this.initEvents();
   }
 
   loadImage(imageSource, onError = null, onDownscaled = null) {
-    const isDataOrBlob = typeof imageSource === 'string' && (imageSource.startsWith('data:') || imageSource.startsWith('blob:'));
-    const tryLoad = (useCrossOrigin) => {
-      const img = new Image();
-      if (useCrossOrigin && !isDataOrBlob) {
-        img.crossOrigin = 'anonymous';
-      }
-      img.onerror = (err) => {
+    return new Promise((resolve, reject) => {
+      const isDataOrBlob = typeof imageSource === 'string' && (imageSource.startsWith('data:') || imageSource.startsWith('blob:'));
+      const tryLoad = (useCrossOrigin) => {
+        const img = new Image();
         if (useCrossOrigin && !isDataOrBlob) {
-          // Fallback: retry without crossOrigin header if server/browser blocked it
-          tryLoad(false);
-          return;
+          img.crossOrigin = 'anonymous';
         }
-        console.error('Failed to load image:', err);
-        if (onError) onError(err);
+        img.onerror = (err) => {
+          if (useCrossOrigin && !isDataOrBlob) {
+            tryLoad(false);
+            return;
+          }
+          console.error('Failed to load image:', err);
+          if (onError) onError(err);
+          reject(err);
+        };
+        img.onload = () => {
+          let w = img.naturalWidth || img.width || 0;
+          let h = img.naturalHeight || img.height || 0;
+
+          if (w < 1 || h < 1) {
+            const err = new Error('Image has zero dimensions');
+            if (onError) onError(err);
+            reject(err);
+            return;
+          }
+
+          const origW = w;
+          const origH = h;
+          let wasDownscaled = false;
+
+          const maxDim = 3200;
+          if (w > maxDim || h > maxDim) {
+            const ratio = Math.min(maxDim / w, maxDim / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+            wasDownscaled = true;
+          }
+
+          this.sourceCanvas.width = w;
+          this.sourceCanvas.height = h;
+          this.sourceCtx.drawImage(img, 0, 0, w, h);
+
+          this.originalCanvas.width = w;
+          this.originalCanvas.height = h;
+          this.originalCtx.drawImage(this.sourceCanvas, 0, 0);
+          this._sourceWasModified = false;
+          this._lastSourceData = null;
+
+          this.maskCanvas.width = w;
+          this.maskCanvas.height = h;
+          this.maskCtx.clearRect(0, 0, w, h);
+
+          this.artisticCanvas.width = w;
+          this.artisticCanvas.height = h;
+          this.artisticCtx.clearRect(0, 0, w, h);
+
+          this.stickers.clear();
+          this.history = [];
+          this.historyIndex = -1;
+
+          this.fitToScreen();
+          this.updateFilteredLayer();
+          this.saveHistoryState();
+          this.render();
+
+          if (wasDownscaled && typeof onDownscaled === 'function') {
+            onDownscaled(origW, origH, w, h);
+          }
+          resolve();
+        };
+        img.src = imageSource;
       };
-      img.onload = () => {
-        let w = img.naturalWidth || img.width || 0;
-        let h = img.naturalHeight || img.height || 0;
 
-        if (w < 1 || h < 1) {
-          if (onError) onError(new Error('Image has zero dimensions'));
-          return;
-        }
-
-        const origW = w;
-        const origH = h;
-        let wasDownscaled = false;
-
-        // Guard against browser canvas crash on excessive resolutions (e.g. 50MP RAW photos)
-        const maxDim = 3200;
-        if (w > maxDim || h > maxDim) {
-          const ratio = Math.min(maxDim / w, maxDim / h);
-          w = Math.round(w * ratio);
-          h = Math.round(h * ratio);
-          wasDownscaled = true;
-        }
-
-        this.sourceCanvas.width = w;
-        this.sourceCanvas.height = h;
-        this.sourceCtx.drawImage(img, 0, 0, w, h);
-
-        // Keep pristine copy of the original image
-        this.originalCanvas.width = w;
-        this.originalCanvas.height = h;
-        this.originalCtx.drawImage(this.sourceCanvas, 0, 0);
-        this._sourceWasModified = false;
-        this._lastSourceData = null;
-
-        this.maskCanvas.width = w;
-        this.maskCanvas.height = h;
-        this.maskCtx.clearRect(0, 0, w, h);
-
-        this.artisticCanvas.width = w;
-        this.artisticCanvas.height = h;
-        this.artisticCtx.clearRect(0, 0, w, h);
-
-        this.stickers.clear();
-        this.history = [];
-        this.historyIndex = -1;
-
-        // Fit image neatly inside viewport
-        this.fitToScreen();
-        this.updateFilteredLayer();
-        this.saveHistoryState();
-        this.render();
-
-        if (wasDownscaled && typeof onDownscaled === 'function') {
-          onDownscaled(origW, origH, w, h);
-        }
-      };
-      img.src = imageSource;
-    };
-
-    tryLoad(true);
+      tryLoad(true);
+    });
   }
 
   loadImageBitmap(bitmap, onDownscaled = null) {
@@ -218,125 +207,124 @@ export class CanvasEngine {
   }
 
   fitToScreen() {
-    const containerW = this.container.clientWidth || window.innerWidth;
-    const containerH = this.container.clientHeight || window.innerHeight;
+    const cw = this.container.clientWidth;
+    const ch = this.container.clientHeight;
     const imgW = this.sourceCanvas.width;
     const imgH = this.sourceCanvas.height;
 
-    if (!imgW || !imgH) return;
+    if (!imgW || !imgH || !cw || !ch) return;
 
-    const scaleX = (containerW - 40) / imgW;
-    const scaleY = (containerH - 40) / imgH;
+    const pad = 24;
+    const availW = cw - pad * 2;
+    const availH = ch - pad * 2;
+
+    const scaleX = availW / imgW;
+    const scaleY = availH / imgH;
     this.scale = Math.min(scaleX, scaleY, 1.0);
 
-    this.offsetX = (containerW - imgW * this.scale) / 2;
-    this.offsetY = (containerH - imgH * this.scale) / 2;
+    this.offsetX = Math.round((cw - imgW * this.scale) / 2);
+    this.offsetY = Math.round((ch - imgH * this.scale) / 2);
 
-    this.updateZoomIndicator();
-    this.resizeDisplayCanvas();
+    this.render();
   }
 
-  updateZoomIndicator() {
-    if (this.resetZoomBtn) {
-      const pct = Math.round(this.scale * 100);
-      this.resetZoomBtn.textContent = `${pct}% · Fit`;
-    }
+  screenToImageCoords(screenX, screenY) {
+    const rect = this.container.getBoundingClientRect();
+    const localX = screenX - rect.left - this.offsetX;
+    const localY = screenY - rect.top - this.offsetY;
+    return {
+      x: localX / this.scale,
+      y: localY / this.scale
+    };
   }
 
-  resizeDisplayCanvas() {
-    const dpr = window.devicePixelRatio || 1;
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
+  imageToScreenCoords(imgX, imgY) {
+    const rect = this.container.getBoundingClientRect();
+    return {
+      x: imgX * this.scale + this.offsetX + rect.left,
+      y: imgY * this.scale + this.offsetY + rect.top
+    };
+  }
 
-    this.displayCanvas.width = w * dpr;
-    this.displayCanvas.height = h * dpr;
-    this.displayCanvas.style.width = `${w}px`;
-    this.displayCanvas.style.height = `${h}px`;
-    this.displayCtx.scale(dpr, dpr);
+  setFilter(name, intensity = 50, size = 50, color = null, angle = null) {
+    this.currentFilter = name;
+    this.filterIntensity = intensity;
+    this.filterSize = size;
+    if (color !== null) this.filterColor = color;
+    if (angle !== null) this.filterAngle = angle;
+    this.updateFilteredLayer();
     this.render();
   }
 
   updateFilteredLayer() {
-    if (!this.sourceCanvas.width) return;
-    const filtered = FilterEngine.applyFilter(
+    const w = this.sourceCanvas.width;
+    const h = this.sourceCanvas.height;
+    if (!w || !h) return;
+
+    if (this.filteredCanvas.width !== w || this.filteredCanvas.height !== h) {
+      this.filteredCanvas.width = w;
+      this.filteredCanvas.height = h;
+    }
+
+    FilterEngine.applyFilter(
       this.sourceCanvas,
+      this.filteredCanvas,
       this.currentFilter,
       this.filterIntensity,
       this.filterSize,
       this.filterColor,
       this.filterAngle
     );
-    this.filteredCanvas.width = filtered.width;
-    this.filteredCanvas.height = filtered.height;
-    this.filteredCtx.clearRect(0, 0, filtered.width, filtered.height);
-    this.filteredCtx.drawImage(filtered, 0, 0);
-    this.render();
   }
 
-  setFilter(type, intensity = this.filterIntensity, size = this.filterSize, color = this.filterColor) {
-    this.currentFilter = type;
-    this.filterIntensity = intensity;
-    this.filterSize = size;
-    this.filterColor = color;
-    this.updateFilteredLayer();
-  }
-
-  setFilterAngle(deg) {
-    this.filterAngle = deg;
-    this.updateFilteredLayer();
-  }
-
-  setDrawShape(shape) {
+  setShape(shape) {
     this.drawShape = shape;
   }
 
-  // Convert viewport screen coords to image buffer pixel coords
-  screenToImageCoords(screenX, screenY) {
-    const rect = this.displayCanvas.getBoundingClientRect();
-    const x = (screenX - rect.left - this.offsetX) / this.scale;
-    const y = (screenY - rect.top - this.offsetY) / this.scale;
-    return { x, y };
+  setDrawShape(shape) {
+    this.setShape(shape);
   }
 
-  imageToScreenCoords(imgX, imgY) {
-    const rect = this.displayCanvas.getBoundingClientRect();
-    return {
-      x: rect.left + this.offsetX + imgX * this.scale,
-      y: rect.top + this.offsetY + imgY * this.scale
-    };
+  setFilterAngle(angle) {
+    this.filterAngle = angle;
+    this.updateFilteredLayer();
+    this.render();
   }
 
   initEvents() {
-    window.addEventListener('resize', () => {
-      this.resizeDisplayCanvas();
-    });
+    const c = this.displayCanvas;
 
-    const el = this.displayCanvas;
-
-    // Pointer events (handles Mouse & Touch uniformly)
-    el.addEventListener('pointerdown', (e) => this.onPointerDown(e));
-    window.addEventListener('pointermove', (e) => this.onPointerMove(e));
-    window.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    window.addEventListener('pointercancel', (e) => this.onPointerUp(e));
-    el.addEventListener('lostpointercapture', (e) => this.onPointerUp(e));
+    c.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+    c.addEventListener('pointermove', (e) => this.onPointerMove(e));
+    c.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    c.addEventListener('pointercancel', (e) => this.onPointerUp(e));
+    c.addEventListener('lostpointercapture', () => this.cancelAllGestures());
     window.addEventListener('blur', () => this.cancelAllGestures());
 
-    // Mouse wheel zoom
-    el.addEventListener('wheel', (e) => {
+    c.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-      const rect = el.getBoundingClientRect();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const rect = this.container.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      const newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * zoomFactor));
+      const newScale = Math.min(this.maxScale, Math.max(this.minScale, this.scale * zoomFactor));
+      if (newScale === this.scale) return;
 
       this.offsetX = mouseX - (mouseX - this.offsetX) * (newScale / this.scale);
       this.offsetY = mouseY - (mouseY - this.offsetY) * (newScale / this.scale);
       this.scale = newScale;
-      this.updateZoomIndicator();
+
       this.render();
     }, { passive: false });
+
+    c.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+
+    window.addEventListener('resize', () => {
+      this.render();
+    });
   }
 
   onPointerDown(e) {
@@ -345,14 +333,20 @@ export class CanvasEngine {
         this.displayCanvas.setPointerCapture(e.pointerId);
       } catch (_) {}
     }
+
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Middle-click pan or Spacebar pan
+    if (e.button === 1 || e.buttons === 4 || e.altKey) {
+      this.isPanning = true;
+      this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY };
+      return;
+    }
 
     // Two finger pinch/pan
     if (this.activePointers.size === 2) {
-      // Cleanly end single-pointer stroke/interaction before starting pinch
       if (this.brush && this.brush.isDrawing) {
         this.brush.endStroke();
-        this.hideLoupe();
       }
       if (this.stickers && this.stickers.activeAction) {
         this.stickers.endInteraction();
@@ -360,7 +354,6 @@ export class CanvasEngine {
       const [p1, p2] = Array.from(this.activePointers.values());
       this.prevPinchDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
       this.isPanning = true;
-      this.hideLoupe();
       return;
     }
 
@@ -384,36 +377,22 @@ export class CanvasEngine {
       }
     }
 
-    // Check if clicking sticker handle or body
-    const hit = this.stickers.hitTest(imgPt.x, imgPt.y, this.scale);
-    if (hit) {
-      const isDelete = (hit.handle === 'delete');
-      this.stickers.startInteraction(imgPt.x, imgPt.y, hit);
-      if (isDelete) {
-        this.saveHistoryState();
-        if (typeof this.onStickerDeleted === 'function') {
-          this.onStickerDeleted();
-        }
-      }
-      this.render();
-      return;
-    } else {
-      // Deselect sticker if clicking empty area while in non-sticker mode
-      if (this.stickers.selectedSticker) {
-        this.stickers.startInteraction(imgPt.x, imgPt.y, null);
+    // Sticker interaction hit testing
+    if (this.stickers && this.stickers.stickers.length > 0) {
+      const hit = this.stickers.handlePointerDown(imgPt.x, imgPt.y, this.scale);
+      if (hit) {
         this.render();
+        return;
       }
     }
 
     // Brush painting or shape dragging
     if (this.drawShape === 'brush') {
       this.brush.startStroke(imgPt.x, imgPt.y);
-      this.showLoupe(e.clientX, e.clientY, imgPt.x, imgPt.y);
       this.render();
     } else {
       this.shapeStart = { x: imgPt.x, y: imgPt.y };
       this.shapeCurrent = { x: imgPt.x, y: imgPt.y };
-      this.showLoupe(e.clientX, e.clientY, imgPt.x, imgPt.y);
       this.render();
     }
   }
@@ -431,14 +410,23 @@ export class CanvasEngine {
         const factor = curDist / this.prevPinchDist;
         const midX = (p1.x + p2.x) / 2;
         const midY = (p1.y + p2.y) / 2;
-        const newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * factor));
+        const rect = this.container.getBoundingClientRect();
+        const lX = midX - rect.left;
+        const lY = midY - rect.top;
 
-        this.offsetX = midX - (midX - this.offsetX) * (newScale / this.scale);
-        this.offsetY = midY - (midY - this.offsetY) * (newScale / this.scale);
+        const newScale = Math.min(this.maxScale, Math.max(this.minScale, this.scale * factor));
+        this.offsetX = lX - (lX - this.offsetX) * (newScale / this.scale);
+        this.offsetY = lY - (lY - this.offsetY) * (newScale / this.scale);
         this.scale = newScale;
-        this.updateZoomIndicator();
+        this.render();
       }
       this.prevPinchDist = curDist;
+      return;
+    }
+
+    if (this.isPanning) {
+      this.offsetX = e.clientX - this.panStart.x;
+      this.offsetY = e.clientY - this.panStart.y;
       this.render();
       return;
     }
@@ -446,7 +434,7 @@ export class CanvasEngine {
     const imgPt = this.screenToImageCoords(e.clientX, e.clientY);
 
     // Active sticker transform
-    if (this.stickers.activeAction) {
+    if (this.stickers && this.stickers.activeAction) {
       this.stickers.continueInteraction(imgPt.x, imgPt.y);
       this.render();
       return;
@@ -456,12 +444,10 @@ export class CanvasEngine {
     if (this.drawShape === 'brush') {
       if (this.brush.isDrawing) {
         this.brush.continueStroke(imgPt.x, imgPt.y);
-        this.updateLoupe(e.clientX, e.clientY, imgPt.x, imgPt.y);
         this.render();
       }
     } else if (this.shapeStart) {
       this.shapeCurrent = { x: imgPt.x, y: imgPt.y };
-      this.updateLoupe(e.clientX, e.clientY, imgPt.x, imgPt.y);
       this.render();
     }
   }
@@ -477,7 +463,6 @@ export class CanvasEngine {
       this.activePointers.delete(e.pointerId);
     }
 
-    // Reset multi-touch pinch/pan state when dropping below 2 fingers
     if (this.activePointers.size < 2) {
       this.prevPinchDist = 0;
       this.isPanning = false;
@@ -493,7 +478,6 @@ export class CanvasEngine {
     if (this.drawShape === 'brush') {
       if (this.brush && this.brush.isDrawing) {
         this.brush.endStroke();
-        this.hideLoupe();
         this.saveHistoryState();
         this.render();
       }
@@ -501,7 +485,6 @@ export class CanvasEngine {
       this.commitShape(this.shapeStart, this.shapeCurrent, this.drawShape);
       this.shapeStart = null;
       this.shapeCurrent = null;
-      this.hideLoupe();
       this.saveHistoryState();
       this.render();
     }
@@ -518,14 +501,15 @@ export class CanvasEngine {
     }
     if (this.brush && this.brush.isDrawing) {
       this.brush.endStroke();
-      this.hideLoupe();
     }
     this.render();
   }
 
   commitShape(start, end, shape) {
     const isEraser = this.brush.isEraser;
-    const isArtistic = this.brush.activeLayer === 'artistic';
+    const isArtistic = (typeof this.brush.isArtistic === 'function')
+      ? this.brush.isArtistic()
+      : ['chalk', 'oil', 'multitone', 'crayon', 'glitter', 'splatter'].includes(this.brush.brushType);
     const targetCtx = isArtistic ? this.artisticCtx : this.maskCtx;
 
     const minX = Math.min(start.x, end.x);
@@ -535,131 +519,80 @@ export class CanvasEngine {
 
     if (w < 2 && h < 2) return;
 
-    targetCtx.save();
     if (isEraser) {
-      targetCtx.globalCompositeOperation = 'destination-out';
-      targetCtx.fillStyle = '#ffffff';
+      this.maskCtx.save();
+      this.maskCtx.globalCompositeOperation = 'destination-out';
+      this.maskCtx.fillStyle = 'rgba(0,0,0,1)';
+      this.maskCtx.beginPath();
+      if (shape === 'rect') {
+        this.maskCtx.rect(minX, minY, w, h);
+      } else if (shape === 'oval') {
+        this.maskCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+      }
+      this.maskCtx.fill();
+      this.maskCtx.restore();
+
+      if (this.artisticCtx) {
+        this.artisticCtx.save();
+        this.artisticCtx.globalCompositeOperation = 'destination-out';
+        this.artisticCtx.fillStyle = 'rgba(0,0,0,1)';
+        this.artisticCtx.beginPath();
+        if (shape === 'rect') {
+          this.artisticCtx.rect(minX, minY, w, h);
+        } else if (shape === 'oval') {
+          this.artisticCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+        }
+        this.artisticCtx.fill();
+        this.artisticCtx.restore();
+      }
+      return;
+    }
+
+    targetCtx.save();
+    if (isArtistic) {
+      targetCtx.globalCompositeOperation = 'source-over';
+      targetCtx.fillStyle = this.brush.color;
     } else {
       targetCtx.globalCompositeOperation = 'source-over';
-      targetCtx.fillStyle = isArtistic ? this.brush.color : '#ffffff';
+      targetCtx.fillStyle = 'rgba(255,255,255,1)';
     }
 
+    targetCtx.beginPath();
     if (shape === 'rect') {
-      targetCtx.fillRect(minX, minY, w, h);
+      targetCtx.rect(minX, minY, w, h);
     } else if (shape === 'oval') {
-      const rx = w / 2;
-      const ry = h / 2;
-      const cx = minX + rx;
-      const cy = minY + ry;
-      targetCtx.beginPath();
-      targetCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      targetCtx.fill();
+      targetCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     }
-
+    targetCtx.fill();
     targetCtx.restore();
   }
 
   drawShapePreview(ctx) {
-    if (!this.shapeStart || !this.shapeCurrent) return;
-    const minX = Math.min(this.shapeStart.x, this.shapeCurrent.x);
-    const minY = Math.min(this.shapeStart.y, this.shapeCurrent.y);
-    const w = Math.abs(this.shapeCurrent.x - this.shapeStart.x);
-    const h = Math.abs(this.shapeCurrent.y - this.shapeStart.y);
+    if (!this.shapeStart || !this.shapeCurrent || this.drawShape === 'brush') return;
+
+    const p1 = this.imageToScreenCoords(this.shapeStart.x, this.shapeStart.y);
+    const p2 = this.imageToScreenCoords(this.shapeCurrent.x, this.shapeCurrent.y);
+
+    const minX = Math.min(p1.x, p2.x);
+    const minY = Math.min(p1.y, p2.y);
+    const w = Math.abs(p2.x - p1.x);
+    const h = Math.abs(p2.y - p1.y);
 
     ctx.save();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = Math.max(1.5, 1.5 / this.scale);
-    ctx.setLineDash([6 / this.scale, 4 / this.scale]);
-    ctx.fillStyle = this.brush.isEraser ? 'rgba(239, 68, 68, 0.25)' : 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
 
+    ctx.beginPath();
     if (this.drawShape === 'rect') {
-      ctx.fillRect(minX, minY, w, h);
-      ctx.strokeRect(minX, minY, w, h);
+      ctx.rect(minX, minY, w, h);
     } else if (this.drawShape === 'oval') {
-      const rx = w / 2;
-      const ry = h / 2;
-      const cx = minX + rx;
-      const cy = minY + ry;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      ctx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     }
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
-  }
-
-  showLoupe(screenX, screenY, imgX, imgY) {
-    if (!this.loupeEnabled) return;
-    this.loupe.classList.remove('hidden');
-    this.updateLoupe(screenX, screenY, imgX, imgY);
-  }
-
-  updateLoupe(screenX, screenY, imgX, imgY) {
-    if (!this.loupeEnabled) return;
-    const loupeRadius = 70;
-    const rect = this.container.getBoundingClientRect();
-    const relX = screenX - rect.left;
-    const relY = screenY - rect.top;
-
-    // Position loupe 90px above contact point; if near top boundary, flip below
-    let topY = relY - loupeRadius - 80;
-    if (topY < 12) {
-      topY = relY + loupeRadius + 30;
-    }
-    const leftX = Math.max(12, Math.min(rect.width - loupeRadius * 2 - 12, relX - loupeRadius));
-
-    this.loupe.style.left = `${leftX}px`;
-    this.loupe.style.top = `${topY}px`;
-
-    // Render 2.5x zoomed content into loupe canvas
-    const lCtx = this.loupeCtx;
-    const lW = 140;
-    const lH = 140;
-    const zoom = 2.5;
-
-    lCtx.save();
-    lCtx.clearRect(0, 0, lW, lH);
-
-    // Circular clip with subtle border
-    lCtx.beginPath();
-    lCtx.arc(lW / 2, lH / 2, loupeRadius - 2, 0, Math.PI * 2);
-    lCtx.clip();
-
-    // Fill with neutral background
-    lCtx.fillStyle = '#18181b';
-    lCtx.fillRect(0, 0, lW, lH);
-
-    // Center zoomed target
-    lCtx.translate(lW / 2, lH / 2);
-    lCtx.scale(zoom, zoom);
-    lCtx.translate(-imgX, -imgY);
-
-    // Draw composited content at full resolution
-    this.drawCompositedToContext(lCtx);
-
-    lCtx.restore();
-
-    // Draw precision crosshair and brush indicator
-    lCtx.save();
-    lCtx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-    lCtx.lineWidth = 1;
-    lCtx.beginPath();
-    lCtx.moveTo(lW / 2 - 10, lH / 2);
-    lCtx.lineTo(lW / 2 + 10, lH / 2);
-    lCtx.moveTo(lW / 2, lH / 2 - 10);
-    lCtx.lineTo(lW / 2, lH / 2 + 10);
-    lCtx.stroke();
-
-    lCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-    lCtx.lineWidth = 1.5;
-    lCtx.beginPath();
-    lCtx.arc(lW / 2, lH / 2, Math.max(4, (this.brush.size * zoom) / 2), 0, Math.PI * 2);
-    lCtx.stroke();
-    lCtx.restore();
-  }
-
-  hideLoupe() {
-    this.loupe.classList.add('hidden');
   }
 
   // --- RENDERING PIPELINE ---
@@ -673,73 +606,108 @@ export class CanvasEngine {
     if (!this.sourceCanvas.width) return;
 
     ctx.save();
-    // Apply pan & zoom
+
+    const dpr = window.devicePixelRatio || 1;
+    if (this.displayCanvas.width !== w * dpr || this.displayCanvas.height !== h * dpr) {
+      this.displayCanvas.width = w * dpr;
+      this.displayCanvas.height = h * dpr;
+      this.displayCanvas.style.width = `${w}px`;
+      this.displayCanvas.style.height = `${h}px`;
+    }
+
+    ctx.scale(dpr, dpr);
+
+    // Draw dark workspace checkerboard background
+    this.drawCheckerboard(ctx, w, h);
+
+    // Apply viewport transform (pan & zoom)
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
-
-    // Checkerboard backdrop behind transparent/padded areas
-    this.drawCheckerboard(ctx, this.sourceCanvas.width, this.sourceCanvas.height);
 
     // Render composited photo layers
     this.drawCompositedToContext(ctx);
 
-    if (!this.showOriginalOnly) {
-      // Render interactive stickers & handles
+    // Draw stickers and active transformation handles
+    if (this.stickers && !this.showOriginalOnly) {
       this.stickers.render(ctx, true);
-
-      // Render non-destructive AI detection preview bounding boxes if active
-      if (this.aiPreviewBoxes && this.aiPreviewBoxes.length > 0) {
-        this.drawAIPreviewBoxes(ctx);
-      }
-
-      // Render interactive shape dragging preview
-      if (this.shapeStart && this.shapeCurrent) {
-        this.drawShapePreview(ctx);
-      }
     }
 
     ctx.restore();
+
+    // Draw active shape selection preview (on top of viewport transform)
+    if (this.shapeStart && this.shapeCurrent) {
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      this.drawShapePreview(ctx);
+      ctx.restore();
+    }
+
+    // Draw AI bounding box detection previews
+    if (this.aiPreviewBoxes && this.aiPreviewBoxes.length > 0 && !this.showOriginalOnly) {
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      this.drawAIPreviewBoxes(ctx);
+      ctx.restore();
+    }
   }
 
   drawAIPreviewBoxes(ctx) {
-    ctx.save();
     for (const b of this.aiPreviewBoxes) {
-      const isIncluded = b.included !== false;
+      const p1 = this.imageToScreenCoords(b.x, b.y);
+      const w = b.width * this.scale;
+      const h = b.height * this.scale;
+      const isIncluded = (b.included !== false);
 
       ctx.save();
       if (isIncluded) {
-        ctx.strokeStyle = '#0071e3';
-        ctx.lineWidth = Math.max(2, 2 / this.scale);
-        ctx.setLineDash([6 / this.scale, 4 / this.scale]);
-        ctx.fillStyle = 'rgba(0, 113, 227, 0.16)';
-        ctx.fillRect(b.x, b.y, b.width, b.height);
-        ctx.strokeRect(b.x, b.y, b.width, b.height);
-
-        // Corner accent markers
-        const cornerSize = Math.max(6, 6 / this.scale);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(b.x - 1, b.y - 1, cornerSize, 2 / this.scale);
-        ctx.fillRect(b.x - 1, b.y - 1, 2 / this.scale, cornerSize);
-        ctx.fillRect(b.x + b.width - cornerSize + 1, b.y - 1, cornerSize, 2 / this.scale);
-        ctx.fillRect(b.x + b.width - 1, b.y - 1, 2 / this.scale, cornerSize);
+        ctx.strokeStyle = '#10b981';
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
       } else {
-        // Excluded box (muted outline and subtle strike)
-        ctx.strokeStyle = '#71717a';
-        ctx.lineWidth = Math.max(1.5, 1.5 / this.scale);
-        ctx.setLineDash([4 / this.scale, 4 / this.scale]);
-        ctx.fillStyle = 'rgba(24, 24, 27, 0.4)';
-        ctx.fillRect(b.x, b.y, b.width, b.height);
-        ctx.strokeRect(b.x, b.y, b.width, b.height);
-
-        // Strike through
-        ctx.beginPath();
-        ctx.moveTo(b.x + 4 / this.scale, b.y + 4 / this.scale);
-        ctx.lineTo(b.x + b.width - 4 / this.scale, b.y + b.height - 4 / this.scale);
-        ctx.stroke();
+        ctx.strokeStyle = '#64748b';
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.12)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
       }
+
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(p1.x, p1.y, w, h, 6);
+      } else {
+        ctx.rect(p1.x, p1.y, w, h);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      // Checkmark or cross badge in upper-left corner
+      const badgeR = 9;
+      const badgeX = p1.x + badgeR + 3;
+      const badgeY = p1.y + badgeR + 3;
+
+      ctx.beginPath();
+      ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
+      ctx.fillStyle = isIncluded ? '#10b981' : '#475569';
+      ctx.fill();
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      if (isIncluded) {
+        ctx.moveTo(badgeX - 4, badgeY);
+        ctx.lineTo(badgeX - 1, badgeY + 3);
+        ctx.lineTo(badgeX + 4, badgeY - 3);
+      } else {
+        ctx.moveTo(badgeX - 3, badgeY - 3);
+        ctx.lineTo(badgeX + 3, badgeY + 3);
+        ctx.moveTo(badgeX + 3, badgeY - 3);
+        ctx.lineTo(badgeX - 3, badgeY + 3);
+      }
+      ctx.stroke();
+
       ctx.restore();
     }
-    ctx.restore();
   }
 
   setAIPreviewBoxes(boxes) {
@@ -774,7 +742,6 @@ export class CanvasEngine {
     targetCtx.drawImage(this.sourceCanvas, 0, 0);
 
     // 2. Draw Filtered Layer masked by Alpha Mask
-    // Use an offscreen buffer to apply the mask cleanly
     if (!this._compBuffer) {
       this._compBuffer = document.createElement('canvas');
       this._compCtx = this._compBuffer.getContext('2d');

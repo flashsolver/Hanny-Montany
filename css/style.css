@@ -202,26 +202,6 @@ html, body {
   cursor: crosshair;
 }
 
-/* Floating Magnifier Loupe */
-.magnifier-loupe {
-  position: absolute;
-  width: 130px;
-  height: 130px;
-  border-radius: 50%;
-  border: 2.5px solid #ffffff;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 100;
-  transition: opacity 0.1s ease;
-  background: #000;
-}
-
-.magnifier-loupe.hidden {
-  display: none;
-  opacity: 0;
-}
-
 /* Viewport Utility HUD */
 .viewport-hud-top {
   position: absolute;

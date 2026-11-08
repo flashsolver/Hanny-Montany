@@ -88,9 +88,11 @@ export class BrushEngine {
     this.lastPoint = null;
   }
 
-  renderPoint(x, y, dx = 0, dy = 0) {
-    const isArtistic = ['chalk', 'oil', 'multitone', 'crayon', 'glitter', 'splatter'].includes(this.brushType);
+  isArtistic() {
+    return ['chalk', 'oil', 'multitone', 'crayon', 'glitter', 'splatter'].includes(this.brushType);
+  }
 
+  renderPoint(x, y, dx = 0, dy = 0) {
     // If eraser is active, it erases from both mask and artistic overlay
     if (this.isEraser) {
       this.eraseAt(this.maskCtx, x, y, this.size, dx, dy);
@@ -100,12 +102,14 @@ export class BrushEngine {
       return;
     }
 
-    // Normal mask painting (controls reveal of blur/mosaic)
-    this.paintMaskStamp(this.maskCtx, x, y, this.size, this.opacity, dx, dy);
-
-    // If an artistic brush is chosen, also paint rich color & texture onto the artistic canvas!
-    if (isArtistic && this.artisticCtx) {
-      this.paintArtisticStamp(this.artisticCtx, x, y, dx, dy);
+    // Strict layer separation: artistic brushes write strictly to artistic layer,
+    // while smooth/blur brushes write strictly to the reveal mask layer.
+    if (this.isArtistic()) {
+      if (this.artisticCtx) {
+        this.paintArtisticStamp(this.artisticCtx, x, y, dx, dy);
+      }
+    } else {
+      this.paintMaskStamp(this.maskCtx, x, y, this.size, this.opacity, dx, dy);
     }
   }
 

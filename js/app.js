@@ -75,7 +75,6 @@ class BlurMosaicApp {
     this.btnExport = document.getElementById('btn-export');
     this.btnResetZoom = document.getElementById('btn-reset-zoom');
     this.btnCompare = document.getElementById('btn-compare');
-    this.btnToggleLoupe = document.getElementById('btn-toggle-loupe');
     this.btnManual = document.getElementById('btn-manual');
     this.toast = document.getElementById('toast-notice');
 
@@ -165,9 +164,7 @@ class BlurMosaicApp {
         this.engine.brush.setSize(val);
         quickSizePills.forEach(p => p.classList.toggle('active', p === pill));
 
-        if (['mosaic', 'hex_mosaic', 'halftone', 'brush_stroke', 'zoom_blur', 'chromatic', 'pop_art', 'color_separation', 'thermal', 'duotone', 'glitch', 'matrix_ascii', 'liquid_swirl', 'reeded_glass', 'film_grain', 'ai_cloaking'].includes(this.engine.currentFilter)) {
-          this.engine.setFilter(this.engine.currentFilter, parseInt(this.sliderIntensity.value, 10), val);
-        }
+        this.engine.setFilter(this.engine.currentFilter, parseInt(this.sliderIntensity.value, 10), val);
       });
     });
 
@@ -339,10 +336,7 @@ class BlurMosaicApp {
       document.querySelectorAll('.quick-pill[data-quick-size]').forEach(p => {
         p.classList.toggle('active', parseInt(p.dataset.quickSize, 10) === val);
       });
-      // If in filter with size dependence, update filter
-      if (['mosaic', 'hex_mosaic', 'halftone', 'brush_stroke', 'zoom_blur', 'chromatic', 'pop_art', 'color_separation', 'thermal', 'duotone', 'glitch', 'matrix_ascii', 'liquid_swirl', 'reeded_glass', 'film_grain', 'ai_cloaking'].includes(this.engine.currentFilter)) {
-        this.engine.setFilter(this.engine.currentFilter, parseInt(this.sliderIntensity.value, 10), val);
-      }
+      this.engine.setFilter(this.engine.currentFilter, parseInt(this.sliderIntensity.value, 10), val);
     });
 
     this.sliderIntensity.addEventListener('input', (e) => {
@@ -441,19 +435,6 @@ class BlurMosaicApp {
       window.addEventListener('pointerup', stopCompare);
       window.addEventListener('pointercancel', stopCompare);
       this.btnCompare.addEventListener('pointerleave', stopCompare);
-    }
-
-    // Floating Loupe toggle
-    if (this.btnToggleLoupe) {
-      this.btnToggleLoupe.addEventListener('click', () => {
-        this.engine.loupeEnabled = !this.engine.loupeEnabled;
-        this.btnToggleLoupe.classList.toggle('active', this.engine.loupeEnabled);
-        this.btnToggleLoupe.setAttribute('aria-pressed', this.engine.loupeEnabled ? 'true' : 'false');
-        if (!this.engine.loupeEnabled) {
-          this.engine.hideLoupe();
-        }
-        this.showToast(this.engine.loupeEnabled ? 'Magnifier: On' : 'Magnifier: Off');
-      });
     }
 
     // AI Actions

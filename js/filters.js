@@ -3,200 +3,250 @@
 
 export class FilterEngine {
   /**
-   * Applies the selected filter to a source canvas/image and returns a filtered canvas
-   * @param {HTMLCanvasElement|HTMLImageElement} source 
-   * @param {string} filterType - 'natural_blur' | 'heavy_blur' | 'mosaic' | 'hex_mosaic' | 'frosted' | 'motion' | 'halftone' | 'blackout'
-   * @param {number} intensity - 0 to 100
-   * @param {number} sizeParam - 0 to 100
-   * @param {string} colorParam - e.g. '#000000'
-   * @param {number} angleParam - 0 to 180 (for directional brush smear, defaults to 0 horizontal)
+   * Internal helper to normalize arguments across dual-context (sCtx, tCtx, width, height, ...)
+   * and legacy single-context (ctx, width, height, ...) invocation signatures.
    */
-  static applyFilter(source, filterType, intensity = 50, sizeParam = 50, colorParam = '#000000', angleParam = 0) {
+  static _resolveCtx(a1, a2, a3, a4, a5, a6, a7) {
+    if (a2 && typeof a2.getImageData === 'function') {
+      return { sCtx: a1, tCtx: a2, width: a3, height: a4, p1: a5, p2: a6, p3: a7 };
+    }
+    return { sCtx: a1, tCtx: a1, width: a2, height: a3, p1: a4, p2: a5, p3: a6 };
+  }
+
+  /**
+   * Applies the selected filter to a target canvas reading from a pristine source canvas or image.
+   * Dual-signature support:
+   * 1. applyFilter(sourceCanvas, targetCanvas, filterType, intensity, sizeParam, colorParam, angleParam)
+   * 2. applyFilter(sourceCanvas, filterType, intensity, sizeParam, colorParam, angleParam) -> returns new canvas
+   *
+   * @param {HTMLCanvasElement|HTMLImageElement|ImageBitmap} source
+   * @param {HTMLCanvasElement|string} targetOrType
+   * @param  {...any} rest
+   * @returns {HTMLCanvasElement}
+   */
+  static applyFilter(source, targetOrType, ...rest) {
+    if (!source || !source.width || !source.height) {
+      return (targetOrType && typeof targetOrType === 'object') ? targetOrType : document.createElement('canvas');
+    }
+
     const width = source.width;
     const height = source.height;
-    const canvas = document.createElement('canvas');
-    if (!width || !height) return canvas;
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
 
-    // Draw base copy
-    ctx.drawImage(source, 0, 0);
+    let target;
+    let filterType;
+    let intensity;
+    let sizeParam;
+    let colorParam;
+    let angleParam;
+
+    if (targetOrType && typeof targetOrType === 'object' && ('getContext' in targetOrType || targetOrType.nodeName === 'CANVAS')) {
+      target = targetOrType;
+      filterType = rest[0];
+      intensity = rest[1] !== undefined ? rest[1] : 50;
+      sizeParam = rest[2] !== undefined ? rest[2] : 50;
+      colorParam = rest[3] !== undefined ? rest[3] : '#000000';
+      angleParam = rest[4] !== undefined ? rest[4] : 0;
+    } else {
+      target = document.createElement('canvas');
+      filterType = targetOrType;
+      intensity = rest[0] !== undefined ? rest[0] : 50;
+      sizeParam = rest[1] !== undefined ? rest[1] : 50;
+      colorParam = rest[2] !== undefined ? rest[2] : '#000000';
+      angleParam = rest[3] !== undefined ? rest[3] : 0;
+    }
+
+    if (target.width !== width || target.height !== height) {
+      target.width = width;
+      target.height = height;
+    }
+
+    const tCtx = target.getContext('2d');
+    if (!tCtx) return target;
+
+    // Source context (if source is a canvas and distinct from target)
+    const isSourceCanvas = typeof source.getContext === 'function';
+    const sCtx = (isSourceCanvas && source !== target) ? source.getContext('2d') : null;
+
+    // Populate target canvas cleanly with a fresh copy of source
+    tCtx.clearRect(0, 0, width, height);
+    tCtx.drawImage(source, 0, 0);
+
+    const readCtx = sCtx || tCtx;
 
     switch (filterType) {
       case 'natural_blur': {
         const radius = Math.max(2, Math.round((intensity / 100) * 45));
-        this.fastStackBlur(ctx, 0, 0, width, height, radius);
+        this.fastStackBlur(tCtx, 0, 0, width, height, radius);
         break;
       }
 
       case 'heavy_blur': {
         const radius = Math.max(8, Math.round((intensity / 100) * 90));
-        this.fastStackBlur(ctx, 0, 0, width, height, radius);
+        this.fastStackBlur(tCtx, 0, 0, width, height, radius);
         break;
       }
 
       case 'mosaic': {
-        // Block size based on sizeParam (4px to 64px)
         const blockSize = Math.max(4, Math.round(4 + (sizeParam / 100) * 60));
-        this.applySquareMosaic(ctx, width, height, blockSize);
+        this.applySquareMosaic(readCtx, tCtx, width, height, blockSize);
         break;
       }
 
       case 'hex_mosaic': {
         const radius = Math.max(6, Math.round(6 + (sizeParam / 100) * 50));
-        this.applyHexMosaic(ctx, width, height, radius);
+        this.applyHexMosaic(readCtx, tCtx, width, height, radius);
         break;
       }
 
       case 'frosted': {
         const strength = Math.max(3, Math.round((intensity / 100) * 35));
-        this.applyFrostedGlass(ctx, width, height, strength);
+        this.applyFrostedGlass(readCtx, tCtx, width, height, strength);
         break;
       }
 
       case 'motion': {
         const distance = Math.max(5, Math.round((intensity / 100) * 60));
-        this.applyMotionBlur(ctx, width, height, distance);
+        this.applyMotionBlur(readCtx, tCtx, width, height, distance);
         break;
       }
 
       case 'brush_stroke': {
         const distance = Math.max(6, Math.round((intensity / 100) * 75));
-        this.applyBrushStrokeBlur(ctx, width, height, distance, sizeParam, angleParam);
+        this.applyBrushStrokeBlur(readCtx, tCtx, width, height, distance, sizeParam, angleParam);
         break;
       }
 
       case 'zoom_blur': {
         const factor = Math.max(0.04, (intensity / 100) * 0.28);
-        this.applyRadialZoomBlur(ctx, width, height, factor);
+        this.applyRadialZoomBlur(readCtx, tCtx, width, height, factor);
         break;
       }
 
       case 'chromatic': {
         const distance = Math.max(4, Math.round((intensity / 100) * 40));
-        this.applyChromaticBlur(ctx, width, height, distance);
+        this.applyChromaticBlur(readCtx, tCtx, width, height, distance);
         break;
       }
 
       case 'pop_art': {
         const levels = Math.max(2, Math.min(6, Math.round(2 + (sizeParam / 100) * 4)));
-        this.applyPopArt(ctx, width, height, levels, intensity);
+        this.applyPopArt(readCtx, tCtx, width, height, levels, intensity);
         break;
       }
 
       case 'color_separation': {
         const shift = Math.max(2, Math.round(2 + (intensity / 100) * 28));
-        this.applyColorSeparation(ctx, width, height, shift);
+        this.applyColorSeparation(readCtx, tCtx, width, height, shift);
         break;
       }
 
       case 'thermal': {
-        this.applyThermalHeatmap(ctx, width, height, intensity);
+        this.applyThermalHeatmap(readCtx, tCtx, width, height, intensity);
         break;
       }
 
       case 'duotone': {
-        this.applyDuotone(ctx, width, height, intensity);
+        this.applyDuotone(readCtx, tCtx, width, height, intensity);
         break;
       }
 
       case 'glitch': {
         const shift = Math.max(4, Math.round(4 + (intensity / 100) * 40));
         const blockSize = Math.max(4, Math.round(4 + (sizeParam / 100) * 24));
-        this.applyGlitch(ctx, width, height, shift, blockSize);
+        this.applyGlitch(readCtx, tCtx, width, height, shift, blockSize);
         break;
       }
 
       case 'matrix_ascii': {
         const cellSize = Math.max(8, Math.round(8 + (sizeParam / 100) * 16));
-        this.applyMatrixAscii(ctx, width, height, cellSize, intensity);
+        this.applyMatrixAscii(readCtx, tCtx, width, height, cellSize, intensity);
         break;
       }
 
       case 'liquid_swirl': {
         const twist = ((intensity / 100) * 8.0 - 4.0) || 2.5;
         const radius = Math.max(30, Math.round(30 + (sizeParam / 100) * 120));
-        this.applyLiquidSwirl(ctx, width, height, twist, radius);
+        this.applyLiquidSwirl(readCtx, tCtx, width, height, twist, radius);
         break;
       }
 
       case 'reeded_glass': {
         const pitch = Math.max(12, Math.round(12 + (sizeParam / 100) * 40));
         const amplitude = Math.max(3, Math.round(3 + (intensity / 100) * 30));
-        this.applyReededGlass(ctx, width, height, pitch, amplitude);
+        this.applyReededGlass(readCtx, tCtx, width, height, pitch, amplitude);
         break;
       }
 
       case 'film_grain':
       case 'ai_cloaking': {
         const strength = Math.max(5, Math.round(5 + (intensity / 100) * 45));
-        this.applyFilmGrain(ctx, width, height, strength);
+        this.applyFilmGrain(readCtx, tCtx, width, height, strength);
         break;
       }
 
       case 'halftone': {
         const dotSize = Math.max(6, Math.round(6 + (sizeParam / 100) * 30));
-        this.applyHalftone(ctx, width, height, dotSize);
+        this.applyHalftone(readCtx, tCtx, width, height, dotSize);
         break;
       }
 
       case 'blackout': {
-        ctx.fillStyle = colorParam || '#000000';
-        ctx.fillRect(0, 0, width, height);
+        tCtx.fillStyle = colorParam || '#000000';
+        tCtx.fillRect(0, 0, width, height);
         break;
       }
 
       default:
-        // Default to natural blur
-        this.fastStackBlur(ctx, 0, 0, width, height, 16);
+        this.fastStackBlur(tCtx, 0, 0, width, height, 16);
     }
 
-    return canvas;
+    return target;
   }
 
   // --- SQUARE MOSAIC / PIXELATE ---
-  static applySquareMosaic(ctx, width, height, blockSize) {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
+  static applySquareMosaic(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: blockSize } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImgData = sCtx.getImageData(0, 0, width, height);
+    const src = srcImgData.data;
+
+    const outImg = tCtx.createImageData(width, height);
+    const out = outImg.data;
 
     for (let y = 0; y < height; y += blockSize) {
       for (let x = 0; x < width; x += blockSize) {
-        // Sample center of block
         const sampleX = Math.min(width - 1, x + Math.floor(blockSize / 2));
         const sampleY = Math.min(height - 1, y + Math.floor(blockSize / 2));
         const sampleIdx = (sampleY * width + sampleX) * 4;
 
-        const r = data[sampleIdx];
-        const g = data[sampleIdx + 1];
-        const b = data[sampleIdx + 2];
-        const a = data[sampleIdx + 3];
+        const r = src[sampleIdx];
+        const g = src[sampleIdx + 1];
+        const b = src[sampleIdx + 2];
+        const a = src[sampleIdx + 3];
 
-        // Fill entire block
         const blockW = Math.min(blockSize, width - x);
         const blockH = Math.min(blockSize, height - y);
 
         for (let by = 0; by < blockH; by++) {
           for (let bx = 0; bx < blockW; bx++) {
             const idx = ((y + by) * width + (x + bx)) * 4;
-            data[idx] = r;
-            data[idx + 1] = g;
-            data[idx + 2] = b;
-            data[idx + 3] = a;
+            out[idx] = r;
+            out[idx + 1] = g;
+            out[idx + 2] = b;
+            out[idx + 3] = a;
           }
         }
       }
     }
-    ctx.putImageData(imgData, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- HEXAGONAL MOSAIC ---
-  static applyHexMosaic(ctx, width, height, radius) {
-    const srcImgData = ctx.getImageData(0, 0, width, height);
+  static applyHexMosaic(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: radius } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImgData = sCtx.getImageData(0, 0, width, height);
     const src = srcImgData.data;
 
-    // Create fresh canvas to render geometric hex paths
-    ctx.clearRect(0, 0, width, height);
+    tCtx.clearRect(0, 0, width, height);
 
     const s = radius;
     const h = s * Math.sqrt(3) / 2;
@@ -209,36 +259,35 @@ export class FilterEngine {
         const cx = col * 1.5 * s;
         const cy = row * 2 * h + (col % 2 !== 0 ? h : 0);
 
-        // Sample center color
         const clampX = Math.max(0, Math.min(width - 1, Math.round(cx)));
         const clampY = Math.max(0, Math.min(height - 1, Math.round(cy)));
         const idx = (clampY * width + clampX) * 4;
 
-        ctx.fillStyle = `rgb(${src[idx]}, ${src[idx + 1]}, ${src[idx + 2]})`;
-        ctx.strokeStyle = `rgba(0, 0, 0, 0.15)`;
-        ctx.lineWidth = 1;
+        tCtx.fillStyle = `rgb(${src[idx]}, ${src[idx + 1]}, ${src[idx + 2]})`;
+        tCtx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+        tCtx.lineWidth = 1;
 
-        // Draw hexagon
-        ctx.beginPath();
+        tCtx.beginPath();
         for (let i = 0; i < 6; i++) {
           const angle = (Math.PI / 3) * i;
           const hx = cx + s * Math.cos(angle);
           const hy = cy + s * Math.sin(angle);
-          if (i === 0) ctx.moveTo(hx, hy);
-          else ctx.lineTo(hx, hy);
+          if (i === 0) tCtx.moveTo(hx, hy);
+          else tCtx.lineTo(hx, hy);
         }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        tCtx.closePath();
+        tCtx.fill();
+        tCtx.stroke();
       }
     }
   }
 
   // --- FROSTED GLASS / CRYSTAL ---
-  static applyFrostedGlass(ctx, width, height, strength) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyFrostedGlass(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: strength } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const pseudoRandom = (x, y) => {
@@ -263,16 +312,16 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
-    // Smooth out frost with light 2px blur
-    this.fastStackBlur(ctx, 0, 0, width, height, 2);
+    tCtx.putImageData(outImg, 0, 0);
+    this.fastStackBlur(tCtx, 0, 0, width, height, 2);
   }
 
   // --- MOTION BLUR ---
-  static applyMotionBlur(ctx, width, height, distance) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyMotionBlur(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: distance } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const samples = 15;
@@ -300,22 +349,24 @@ export class FilterEngine {
         out[dIdx + 3] = a / count;
       }
     }
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- RADIAL ZOOM / BURST BLUR ---
-  // High-energy optical zoom burst radiating outward from image center
-  static applyRadialZoomBlur(ctx, width, height, factor, centerX = width / 2, centerY = height / 2) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyRadialZoomBlur(a1, a2, a3, a4, a5, a6, a7) {
+    const { sCtx, tCtx, width, height, p1: factor, p2: centerXParam, p3: centerYParam } = this._resolveCtx(a1, a2, a3, a4, a5, a6, a7);
+    const centerX = centerXParam !== undefined ? centerXParam : width / 2;
+    const centerY = centerYParam !== undefined ? centerYParam : height / 2;
+
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const samples = 14;
     const weights = new Float32Array(samples);
     let totalWeight = 0;
     for (let s = 0; s < samples; s++) {
-      // Gentle taper towards outer rays
       const w = 1 - (s / samples) * 0.45;
       weights[s] = w;
       totalWeight += w;
@@ -353,18 +404,18 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- CHROMATIC PRISM BLUR ---
-  // Staggered RGB channel split with directional prismatic dispersion
-  static applyChromaticBlur(ctx, width, height, distance) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyChromaticBlur(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: distance } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
-    const angle = 0.58; // ~33 degrees diagonal prism angle
+    const angle = 0.58;
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
     const samples = 7;
@@ -379,13 +430,10 @@ export class FilterEngine {
     const greenOffsetsY = new Int32Array(samples);
 
     for (let s = 0; s < samples; s++) {
-      // Red shifted forward along prism axis
       redOffsetsX[s] = Math.round(s * step * cosA);
       redOffsetsY[s] = Math.round(s * step * sinA);
-      // Blue shifted backward along prism axis
       blueOffsetsX[s] = Math.round(-s * step * cosA);
       blueOffsetsY[s] = Math.round(-s * step * sinA);
-      // Green centered with mild softness
       const gs = s - halfSamples;
       greenOffsetsX[s] = Math.round(gs * (step * 0.4) * cosA);
       greenOffsetsY[s] = Math.round(gs * (step * 0.4) * sinA);
@@ -420,26 +468,26 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- PAINT BRUSH STROKE BLUR ---
-  // Directional painterly blur similar to motion blur, infused with natural wrist angle,
-  // Hann-window weighted pigment smear, and multi-strand bristle hair striations.
-  static applyBrushStrokeBlur(ctx, width, height, distance, sizeParam = 50, angleDeg = 135) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyBrushStrokeBlur(a1, a2, a3, a4, a5, a6, a7) {
+    const { sCtx, tCtx, width, height, p1: distance, p2: sizeParam, p3: angleDeg } = this._resolveCtx(a1, a2, a3, a4, a5, a6, a7);
+    const size = sizeParam !== undefined ? sizeParam : 50;
+    const angleValue = angleDeg !== undefined ? angleDeg : 135;
+
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
-    // Angle of hand sweep (0° horizontal, 90° vertical, 135° diagonal wrist sweep)
-    const angle = -((angleDeg % 180)) * (Math.PI / 180);
+    const angle = -((angleValue % 180)) * (Math.PI / 180);
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
     const perpCos = -sinA;
     const perpSin = cosA;
 
-    // Scale sample count with distance while keeping execution snappy
     const samples = Math.min(21, Math.max(11, Math.round(distance / 3) | 1));
     const halfSamples = Math.floor(samples / 2);
     const step = distance / samples;
@@ -454,7 +502,6 @@ export class FilterEngine {
       const t = s * step;
       sampleDX[idx] = Math.round(t * cosA);
       sampleDY[idx] = Math.round(t * sinA);
-      // Hann-window cosine bell taper for velvety painterly blending
       const w = 0.54 + 0.46 * Math.cos((s / halfSamples) * Math.PI * 0.85);
       weights[idx] = w;
       totalWeight += w;
@@ -463,7 +510,6 @@ export class FilterEngine {
       weights[i] /= totalWeight;
     }
 
-    // Precomputed 512-entry bristle texture LUT (harmonic hair striations & micro-grooves)
     const bristleLUT = new Float32Array(512);
     for (let i = 0; i < 512; i++) {
       const h1 = Math.sin(i * 0.18) * 0.07;
@@ -472,7 +518,7 @@ export class FilterEngine {
       bristleLUT[i] = 1.0 + (h1 + h2 + h3);
     }
 
-    const bristleFreq = 0.35 / Math.max(0.2, (sizeParam / 50));
+    const bristleFreq = 0.35 / Math.max(0.2, (size / 50));
     const sampleSys = new Int32Array(samples);
 
     for (let y = 0; y < height; y++) {
@@ -498,7 +544,6 @@ export class FilterEngine {
           a += src[idx + 3] * w;
         }
 
-        // Apply bristle track modulation along orthogonal brush plane
         const perp = rowPerp + x * perpCos;
         const lutIdx = Math.abs((perp * bristleFreq * 16) | 0) & 511;
         const bristleMod = bristleLUT[lutIdx];
@@ -511,21 +556,25 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- POP ART POSTERIZE ---
-  // High-contrast tonal quantization into bold screenprint pop-art palette
-  static applyPopArt(ctx, width, height, levels = 4, intensity = 50) {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
+  static applyPopArt(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: levelsParam, p2: intensityParam } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const levels = levelsParam !== undefined ? levelsParam : 4;
+    const intensity = intensityParam !== undefined ? intensityParam : 50;
 
-    // Iconic pop-art screenprint palettes
+    const srcImg = sCtx.getImageData(0, 0, width, height);
+    const src = srcImg.data;
+    const outImg = tCtx.createImageData(width, height);
+    const out = outImg.data;
+
     const palette4 = [
-      [15, 23, 42],    // Deep Ink
-      [220, 38, 38],   // Vibrant Crimson
-      [245, 158, 11],  // Amber Gold
-      [254, 243, 199]  // Vintage Paper
+      [15, 23, 42],
+      [220, 38, 38],
+      [245, 158, 11],
+      [254, 243, 199]
     ];
 
     const palette6 = [
@@ -540,7 +589,6 @@ export class FilterEngine {
     const activePalette = levels <= 4 ? palette4 : palette6;
     const numColors = activePalette.length;
 
-    // Precompute 256-entry LUT for instant mapping
     const lut = new Uint8Array(256 * 3);
     for (let i = 0; i < 256; i++) {
       const tier = Math.min(numColors - 1, Math.floor((i / 256) * numColors));
@@ -552,29 +600,32 @@ export class FilterEngine {
 
     const contrastBoost = 1.0 + (intensity / 100) * 0.5;
 
-    for (let i = 0; i < data.length; i += 4) {
-      let lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+    for (let i = 0; i < src.length; i += 4) {
+      let lum = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
       if (contrastBoost !== 1.0) {
         lum = Math.max(0, Math.min(255, Math.round(128 + (lum - 128) * contrastBoost)));
       }
       const idx = lum * 3;
-      data[i] = lut[idx];
-      data[i + 1] = lut[idx + 1];
-      data[i + 2] = lut[idx + 2];
+      out[i] = lut[idx];
+      out[i + 1] = lut[idx + 1];
+      out[i + 2] = lut[idx + 2];
+      out[i + 3] = src[i + 3];
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- COLOR SEPARATION (CMYK OFFSET) ---
-  // Vintage mechanical printing press misregistration with shifted color plates
-  static applyColorSeparation(ctx, width, height, shift = 10) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyColorSeparation(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: shiftParam } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const shift = shiftParam !== undefined ? shiftParam : 10;
+
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
-    const angle = 0.52; // ~30 degrees plate shift
+    const angle = 0.52;
     const dx = Math.round(shift * Math.cos(angle));
     const dy = Math.round(shift * Math.sin(angle));
 
@@ -592,21 +643,23 @@ export class FilterEngine {
         const idxYellow = (yYellow * width + xYellow) * 4;
 
         const dIdx = rowIdx + x * 4;
-        out[dIdx] = src[idxCyan];        // Cyan/Red plate shifted
-        out[dIdx + 1] = src[idxCenter + 1]; // Magenta/Green plate centered
-        out[dIdx + 2] = src[idxYellow + 2]; // Yellow/Blue plate shifted
+        out[dIdx] = src[idxCyan];
+        out[dIdx + 1] = src[idxCenter + 1];
+        out[dIdx + 2] = src[idxYellow + 2];
         out[dIdx + 3] = src[idxCenter + 3];
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- THERMAL HEATMAP ---
-  // False-color infrared temperature spectrum (Navy -> Purple -> Orange -> White)
-  static applyThermalHeatmap(ctx, width, height, intensity = 50) {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
+  static applyThermalHeatmap(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
+    const src = srcImg.data;
+    const outImg = tCtx.createImageData(width, height);
+    const out = outImg.data;
 
     const lut = new Uint8Array(256 * 3);
     for (let i = 0; i < 256; i++) {
@@ -638,25 +691,28 @@ export class FilterEngine {
       lut[i * 3 + 2] = b;
     }
 
-    for (let i = 0; i < data.length; i += 4) {
-      const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+    for (let i = 0; i < src.length; i += 4) {
+      const lum = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
       const idx = lum * 3;
-      data[i] = lut[idx];
-      data[i + 1] = lut[idx + 1];
-      data[i + 2] = lut[idx + 2];
+      out[i] = lut[idx];
+      out[i + 1] = lut[idx + 1];
+      out[i + 2] = lut[idx + 2];
+      out[i + 3] = src[i + 3];
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- DUOTONE / RISOGRAPH ---
-  // Graphic two-tone gradient mapping (Deep Navy to Electric Coral)
-  static applyDuotone(ctx, width, height, intensity = 50) {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
+  static applyDuotone(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
+    const src = srcImg.data;
+    const outImg = tCtx.createImageData(width, height);
+    const out = outImg.data;
 
-    const dark = [15, 23, 42];     // Deep Navy (#0f172a)
-    const light = [251, 113, 133]; // Electric Coral (#fb7185)
+    const dark = [15, 23, 42];
+    const light = [251, 113, 133];
 
     const lut = new Uint8Array(256 * 3);
     for (let i = 0; i < 256; i++) {
@@ -666,24 +722,26 @@ export class FilterEngine {
       lut[i * 3 + 2] = Math.round(dark[2] * (1 - t) + light[2] * t);
     }
 
-    for (let i = 0; i < data.length; i += 4) {
-      const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+    for (let i = 0; i < src.length; i += 4) {
+      const lum = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
       const idx = lum * 3;
-      data[i] = lut[idx];
-      data[i + 1] = lut[idx + 1];
-      data[i + 2] = lut[idx + 2];
+      out[i] = lut[idx];
+      out[i + 1] = lut[idx + 1];
+      out[i + 2] = lut[idx + 2];
+      out[i + 3] = src[i + 3];
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- HALFTONE DOTS ---
-  static applyHalftone(ctx, width, height, dotSpacing) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyHalftone(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: dotSpacing } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    tCtx.fillStyle = '#ffffff';
+    tCtx.fillRect(0, 0, width, height);
 
     for (let y = 0; y < height; y += dotSpacing) {
       for (let x = 0; x < width; x += dotSpacing) {
@@ -700,10 +758,10 @@ export class FilterEngine {
         const currentR = luminance * maxR;
 
         if (currentR > 0.5) {
-          ctx.beginPath();
-          ctx.arc(sx, sy, currentR, 0, Math.PI * 2);
-          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-          ctx.fill();
+          tCtx.beginPath();
+          tCtx.arc(sx, sy, currentR, 0, Math.PI * 2);
+          tCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+          tCtx.fill();
         }
       }
     }
@@ -715,7 +773,6 @@ export class FilterEngine {
     const imgData = ctx.getImageData(x, y, width, height);
     const pixels = imgData.data;
 
-    // 3 passes of box blur yields high-quality Gaussian approximation
     this.boxBlurPass(pixels, width, height, radius);
     this.boxBlurPass(pixels, width, height, radius);
     this.boxBlurPass(pixels, width, height, radius);
@@ -803,10 +860,11 @@ export class FilterEngine {
   }
 
   // --- CYBERPUNK GLITCH & DATA-BEND ---
-  static applyGlitch(ctx, width, height, shift, blockSize) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyGlitch(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: shift, p2: blockSize } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const numSlices = Math.ceil(height / blockSize);
@@ -848,19 +906,20 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- RETRO ASCII / MATRIX TERMINAL ---
-  static applyMatrixAscii(ctx, width, height, cellSize, intensity) {
-    const src = ctx.getImageData(0, 0, width, height).data;
+  static applyMatrixAscii(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: cellSize, p2: intensity } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const src = sCtx.getImageData(0, 0, width, height).data;
 
-    ctx.fillStyle = '#060a08';
-    ctx.fillRect(0, 0, width, height);
+    tCtx.fillStyle = '#060a08';
+    tCtx.fillRect(0, 0, width, height);
 
-    ctx.font = `bold ${Math.round(cellSize * 0.9)}px "Courier New", Courier, monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    tCtx.font = `bold ${Math.round(cellSize * 0.9)}px "Courier New", Courier, monospace`;
+    tCtx.textAlign = 'center';
+    tCtx.textBaseline = 'middle';
 
     const chars = [' ', '.', ':', '-', '=', '+', '*', '%', '#', '@'];
     const boost = 1 + (intensity / 100) * 0.5;
@@ -890,17 +949,18 @@ export class FilterEngine {
         const r = Math.round(g * 0.18);
         const b = Math.round(g * 0.28);
 
-        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        ctx.fillText(char, x + cellSize / 2, y + cellSize / 2);
+        tCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        tCtx.fillText(char, x + cellSize / 2, y + cellSize / 2);
       }
     }
   }
 
   // --- HYDRODYNAMIC LIQUID SWIRL ---
-  static applyLiquidSwirl(ctx, width, height, twist, radius) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyLiquidSwirl(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: twist, p2: radius } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const step = Math.max(40, Math.round(radius * 1.3));
@@ -961,14 +1021,15 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- REEDED / FLUTED PRIVACY GLASS ---
-  static applyReededGlass(ctx, width, height, pitch, amplitude) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyReededGlass(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: pitch, p2: amplitude } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const twoPi = Math.PI * 2;
@@ -1001,14 +1062,15 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // --- FILM GRAIN & ANALOG TEXTURE ---
-  static applyFilmGrain(ctx, width, height, strength) {
-    const srcImg = ctx.getImageData(0, 0, width, height);
+  static applyFilmGrain(a1, a2, a3, a4, a5) {
+    const { sCtx, tCtx, width, height, p1: strength } = this._resolveCtx(a1, a2, a3, a4, a5);
+    const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
-    const outImg = ctx.createImageData(width, height);
+    const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
     const amp = (strength / 100) * 14;
@@ -1018,7 +1080,7 @@ export class FilterEngine {
       for (let x = 0; x < width; x++) {
         const xWave = Math.cos(x * 0.89);
         const noise = (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
-        
+
         const delta = Math.round((xWave * yWave * 0.75 + noise * 0.25) * amp);
 
         const idx = (y * width + x) * 4;
@@ -1029,11 +1091,11 @@ export class FilterEngine {
       }
     }
 
-    ctx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(outImg, 0, 0);
   }
 
   // Backwards compatibility alias
-  static applyAiCloaking(ctx, width, height, strength) {
-    return this.applyFilmGrain(ctx, width, height, strength);
+  static applyAiCloaking(a1, a2, a3, a4, a5) {
+    return this.applyFilmGrain(a1, a2, a3, a4, a5);
   }
 }
