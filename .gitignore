@@ -1,0 +1,60 @@
+# ==============================================================================
+# Hanny Montany Studio - .gitignore
+# Ensures only clean production web app, PWA, and GitHub Pages assets are uploaded
+# ==============================================================================
+
+# Operating System Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Code Editors & IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Node & Package Managers (if run locally)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Local Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Local Test Scripts, Scratchpads & Temporary Files
+scratch/
+temp/
+tmp/
+*.tmp
+test-*.mjs
+test-*.js
+*.log
+
+# Internal Workspace Configs & Development Notes (Local Only)
+.*/
+AGENTS.md
+PRODUCT.md
+PROJECT_SUMMARY.md
+CHAT_SUMMARY.md
+chat-summary.md
+tasks/
+docs/

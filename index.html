@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0a0c">
+  <title>Hanny Montany • Privacy & Photo Studio</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/style.css?v=19">
+</head>
+<body>
+  <div id="app-container">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-badge" title="Hanny Montany Studio">
+          <img src="images/logo.jpg" alt="Hanny Montany Logo" class="brand-logo-img">
+        </div>
+        <div>
+          <div class="brand-title">Hanny Montany</div>
+          <div class="brand-subtitle">Privacy Censor & Photo Studio</div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Privacy status indicator -->
+        <div class="privacy-badge" title="100% on-device privacy: No photos or data are ever uploaded">
+          <span class="privacy-dot"></span>
+          <span>100% Offline</span>
+        </div>
+
+        <!-- Sample selector dropdown -->
+        <select id="sample-select" class="sample-select" title="Choose a sample image" aria-label="Sample image">
+          <option value="realistic" selected>Realistic Person</option>
+          <option value="portrait">Artistic Portrait</option>
+          <option value="id-card">ID Card & Text</option>
+          <option value="outdoor">Beach & Landscape</option>
+        </select>
+
+        <!-- Upload button -->
+        <label class="btn-pill" title="Open a photo from your device" aria-label="Open photo">
+          <span>Open</span>
+          <input type="file" id="file-input" accept="image/png, image/jpeg, image/webp, image/avif, image/bmp" style="display: none;">
+        </label>
+
+        <!-- Save / Export button -->
+        <button id="btn-export" class="btn-pill primary" title="Save high-resolution photo" aria-label="Save photo">
+          <span>Save</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Canvas Viewport -->
+    <main id="canvas-viewport" class="canvas-viewport">
+      <!-- Viewport Utility HUD -->
+      <div class="viewport-hud-top">
+        <button id="btn-reset-zoom" class="hud-pill" title="Reset pan & zoom" aria-label="Reset pan and zoom">100% Fit</button>
+        <button id="btn-compare" class="hud-pill" title="Press and hold to view original photo (or hold Spacebar)" aria-label="Hold to view original photo">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Original</span>
+        </button>
+        <button id="btn-toggle-loupe" class="hud-pill active" title="Toggle floating precision magnifier loupe" aria-label="Toggle floating precision magnifier" aria-pressed="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          <span>Loupe</span>
+        </button>
+        <button id="btn-manual" class="hud-pill" title="Open User Manual & Feature Guide (?)" aria-label="Open User Manual">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Guide</span>
+        </button>
+      </div>
+
+      <!-- AI Detection Preview & Commit Bar -->
+      <div id="ai-preview-bar" class="ai-preview-bar" style="display: none;">
+        <span id="ai-preview-summary" class="ai-preview-summary">Targets Found</span>
+        <div class="ai-preview-actions">
+          <button id="btn-ai-apply" class="btn-pill primary">Apply Blur</button>
+          <button id="btn-ai-dismiss" class="btn-pill">Dismiss</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Toast Notice -->
+    <div id="toast-notice" class="toast-notice">Notice</div>
+
+    <!-- Reset Confirmation In-App Dark Modal -->
+    <div id="modal-clear-confirm" class="dark-modal-backdrop" style="display: none;">
+      <div class="dark-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-desc">
+        <h3 id="modal-title">Reset All Edits?</h3>
+        <p id="modal-desc">This will permanently clear all blur masks, artistic strokes, and stickers from the current photo.</p>
+        <div class="modal-actions">
+          <button id="btn-cancel-clear" class="btn-pill">Keep Edits</button>
+          <button id="btn-confirm-clear" class="btn-pill destructive">Reset All</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Options In-App Dark Modal -->
+    <div id="modal-export" class="dark-modal-backdrop" style="display: none;">
+      <div class="dark-modal" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+        <h3 id="export-modal-title">Export Clean Photo</h3>
+        <p class="export-modal-subtitle">100% On-Device • All EXIF & GPS metadata automatically stripped</p>
+
+        <div class="export-field-group">
+          <label class="export-label">Format</label>
+          <div class="format-segmented-bar" role="radiogroup" aria-label="Export Format">
+            <button class="format-pill active" data-format="image/png" aria-pressed="true">PNG (Lossless)</button>
+            <button class="format-pill" data-format="image/jpeg" aria-pressed="false">JPEG (Photo)</button>
+            <button class="format-pill" data-format="image/webp" aria-pressed="false">WebP (Web)</button>
+          </div>
+        </div>
+
+        <div id="export-quality-group" class="export-field-group" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label class="export-label">Quality</label>
+            <span id="export-quality-val" class="slider-value" style="font-size: 12px;">95%</span>
+          </div>
+          <input type="range" id="export-quality-slider" min="50" max="100" value="95" aria-label="Export Quality">
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-cancel-export" class="btn-pill">Cancel</button>
+          <button id="btn-confirm-export" class="btn-pill primary">Download Photo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Manual & Interactive Feature Guide Modal -->
+    <div id="modal-manual" class="dark-modal-backdrop" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="manual-modal-title">
+      <div class="dark-modal manual-modal">
+        <div class="manual-header">
+          <div class="manual-brand">
+            <div class="logo-badge" style="width: 24px; height: 24px; padding: 0; overflow: hidden;">
+              <img src="images/logo.jpg" alt="Logo" style="width: 100%; height: 100%; object-fit: cover; border-radius: 5px;">
+            </div>
+            <h3 id="manual-modal-title" style="margin: 0; font-size: 16px;">Hanny Montany Studio Manual</h3>
+          </div>
+          <button id="btn-close-manual" class="icon-btn" title="Close manual (Esc)" aria-label="Close user manual" style="width: 28px; height: 28px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <!-- Manual Navigation Tabs -->
+        <div class="manual-nav" role="tablist" aria-label="Manual Sections">
+          <button class="manual-nav-pill active" data-manual-tab="start" role="tab" aria-selected="true">Privacy</button>
+          <button class="manual-nav-pill" data-manual-tab="install" role="tab" aria-selected="false">Offline App</button>
+          <button class="manual-nav-pill" data-manual-tab="cloak" role="tab" aria-selected="false">Face Cloak</button>
+          <button class="manual-nav-pill" data-manual-tab="recipes" role="tab" aria-selected="false">Recipes</button>
+          <button class="manual-nav-pill" data-manual-tab="modes" role="tab" aria-selected="false">4 Modes</button>
+          <button class="manual-nav-pill" data-manual-tab="filters" role="tab" aria-selected="false">20 Filters</button>
+          <button class="manual-nav-pill" data-manual-tab="shortcuts" role="tab" aria-selected="false">Shortcuts</button>
+        </div>
+
+        <!-- Manual Content Pane (Dynamically populated from js/manual-data.js) -->
+        <div class="manual-scroll-area" role="tabpanel"></div>
+
+        <div class="manual-footer">
+          <span class="manual-credit">v2.5.0 • made by FlashSolver for Hanim 🫶</span>
+          <button id="btn-done-manual" class="btn-pill primary">Got It</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Distilled Bottom Editing Panel (Compact 2-Tier Architecture) -->
+    <footer class="bottom-controls-panel">
+      <!-- Tier 1: Contextual Shelf (Adjustments & Presets) -->
+      <div class="contextual-tier">
+        <!-- Sliders Adjustment Strip (Stacked Precision Rows) -->
+        <div class="sliders-container">
+          <!-- Size Slider Row -->
+          <div id="group-size" class="slider-precision-row">
+            <div class="slider-meta">
+              <span class="slider-label">Size</span>
+              <span id="label-size" class="slider-value-badge">45px</span>
+              <div class="quick-pill-group" role="group" aria-label="Quick size presets">
+                <button type="button" class="quick-pill" data-quick-size="16" title="Fine detail (16px)">16</button>
+                <button type="button" class="quick-pill active" data-quick-size="45" title="Medium area (45px)">45</button>
+                <button type="button" class="quick-pill" data-quick-size="90" title="Broad cover (90px)">90</button>
+              </div>
+            </div>
+            <div class="slider-track-wrap">
+              <input type="range" id="slider-size" min="4" max="150" value="45" aria-label="Brush Size">
+            </div>
+          </div>
+
+          <!-- Intensity Slider Row -->
+          <div id="group-intensity" class="slider-precision-row">
+            <div class="slider-meta">
+              <span class="slider-label">Intensity</span>
+              <span id="label-intensity" class="slider-value-badge">65%</span>
+              <div class="quick-pill-group" role="group" aria-label="Quick intensity presets">
+                <button type="button" class="quick-pill" data-quick-intensity="25" title="Subtle (25%)">25%</button>
+                <button type="button" class="quick-pill active" data-quick-intensity="65" title="Balanced (65%)">65%</button>
+                <button type="button" class="quick-pill" data-quick-intensity="100" title="Heavy censor (100%)">100%</button>
+              </div>
+            </div>
+            <div class="slider-track-wrap">
+              <input type="range" id="slider-intensity" min="5" max="100" value="65" aria-label="Filter Intensity">
+            </div>
+          </div>
+
+          <!-- Transparency Slider (Active in Sticker Mode) -->
+          <div id="group-opacity" class="slider-precision-row" style="display: none;">
+            <div class="slider-meta">
+              <span class="slider-label">Opacity</span>
+              <span id="label-opacity" class="slider-value-badge">100%</span>
+              <button id="btn-delete-sticker" class="btn-pill destructive" title="Delete selected sticker" aria-label="Delete sticker" style="padding: 2px 8px; font-size: 11px; margin-left: auto;">Delete</button>
+            </div>
+            <div class="slider-track-wrap">
+              <input type="range" id="slider-opacity" min="10" max="100" value="100" aria-label="Sticker Opacity">
+            </div>
+          </div>
+        </div>
+
+        <!-- Paintbrush Stroke, Shape & Angle Selector -->
+        <div id="brush-strokes-bar" class="brush-strokes-bar">
+          <!-- Shape Tools (Brush / Rect / Oval) -->
+          <div class="shape-options" role="radiogroup" aria-label="Mask Drawing Shape">
+            <button class="stroke-pill shape-pill active" data-draw-shape="brush" title="Freehand Brush Painting" aria-pressed="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/><path d="M12 9v12"/></svg>
+              <span>Brush</span>
+            </button>
+            <button class="stroke-pill shape-pill" data-draw-shape="rect" title="Rectangle Box Censor (drag over text or face)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+              <span>Box</span>
+            </button>
+            <button class="stroke-pill shape-pill" data-draw-shape="oval" title="Oval / Circle Censor (drag over face or avatar)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg>
+              <span>Oval</span>
+            </button>
+            <button id="btn-invert-mask" class="stroke-pill" title="Invert Mask: Flip blurred and clear areas (reverse censor / focal spotlight)" aria-label="Invert Mask">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20Z" fill="currentColor"/></svg>
+              <span>Invert</span>
+            </button>
+          </div>
+
+          <div class="stroke-divider"></div>
+
+          <!-- Freehand Stroke Styles (Active when Shape is Brush) -->
+          <div id="stroke-style-options" class="stroke-options" role="radiogroup" aria-label="Paintbrush Stroke Style">
+            <button class="stroke-pill active" data-stroke="soft" title="Soft Round Brush (Feathered edge)" aria-pressed="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" opacity="0.85"><circle cx="12" cy="12" r="9"/></svg>
+              <span>Soft</span>
+            </button>
+            <button class="stroke-pill" data-stroke="hard" title="Hard Edge Marker (Crisp line)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>
+              <span>Hard</span>
+            </button>
+            <button class="stroke-pill" data-stroke="chisel" title="Chisel Highlighter (Angled flat ribbon)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="5" y="8" width="14" height="8" rx="1.5" transform="rotate(-30 12 12)"/></svg>
+              <span>Chisel</span>
+            </button>
+            <button class="stroke-pill" data-stroke="bristle" title="Bristle Paintbrush (Textured hairs)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="5" x2="6" y2="19"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="18" y1="5" x2="18" y2="19"/></svg>
+              <span>Bristle</span>
+            </button>
+            <button class="stroke-pill" data-stroke="spray" title="Airbrush Spray (Aerosol mist)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="12" r="2.2"/><circle cx="6" cy="8" r="1.5"/><circle cx="18" cy="8" r="1.5"/><circle cx="7" cy="16" r="1.5"/><circle cx="17" cy="16" r="1.5"/><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg>
+              <span>Spray</span>
+            </button>
+          </div>
+
+          <!-- Stroke Angle Options (Active when Brush Stroke blur filter is selected) -->
+          <div id="stroke-angle-options" class="stroke-options" style="display: none;" role="radiogroup" aria-label="Blur Stroke Direction">
+            <button class="stroke-pill angle-pill active" data-angle="0" title="Horizontal Smear (0°)" aria-pressed="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12"/></svg>
+              <span>Horiz</span>
+            </button>
+            <button class="stroke-pill angle-pill" data-angle="135" title="Diagonal Hand Sweep (135°)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+              <span>Diag</span>
+            </button>
+            <button class="stroke-pill angle-pill" data-angle="90" title="Vertical Smear (90°)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              <span>Vert</span>
+            </button>
+            <button class="stroke-pill angle-pill" data-angle="45" title="Reverse Diagonal (45°)" aria-pressed="false">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="5" x2="19" y2="19"/></svg>
+              <span>45°</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Presets Carousel & Actions Container -->
+        <div class="carousel-wrapper">
+          <!-- Filter Sub-Category Tabs (Active in Blur Mode) -->
+          <nav id="filter-category-tabs" class="filter-category-tabs" role="tablist" aria-label="Filter Categories">
+            <button type="button" class="filter-subtab-btn active" data-filter-cat="all" role="tab" aria-selected="true">All (20)</button>
+            <button type="button" class="filter-subtab-btn" data-filter-cat="privacy" role="tab" aria-selected="false">Privacy</button>
+            <button type="button" class="filter-subtab-btn" data-filter-cat="optics" role="tab" aria-selected="false">Optics</button>
+            <button type="button" class="filter-subtab-btn" data-filter-cat="retro" role="tab" aria-selected="false">Retro & Art</button>
+          </nav>
+
+          <!-- 1A: Blur & Mosaic Filters Carousel -->
+          <div id="carousel-filters" class="preset-carousel">
+            <div class="preset-card active" data-filter="natural_blur" data-category="privacy">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #cbd5e1, #64748b); filter: blur(3px);"></div>
+              <span class="preset-title">Natural Blur</span>
+            </div>
+            <div class="preset-card" data-filter="heavy_blur" data-category="privacy">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #e2e8f0, #334155); filter: blur(7px);"></div>
+              <span class="preset-title">Heavy Bokeh</span>
+            </div>
+            <div class="preset-card" data-filter="mosaic" data-category="privacy">
+              <div class="preset-thumb" style="background: conic-gradient(#475569 90deg, #94a3b8 90deg 180deg, #1e293b 180deg 270deg, #64748b 270deg);"></div>
+              <span class="preset-title">Square Mosaic</span>
+            </div>
+            <div class="preset-card" data-filter="hex_mosaic" data-category="privacy">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #475569, #94a3b8); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);"></div>
+              <span class="preset-title">Hex Mosaic</span>
+            </div>
+            <div class="preset-card" data-filter="frosted" data-category="privacy">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #64748b, #94a3b8); border: 1px solid rgba(255,255,255,0.25);"></div>
+              <span class="preset-title">Frosted Glass</span>
+            </div>
+            <div class="preset-card" data-filter="motion" data-category="optics">
+              <div class="preset-thumb" style="background: linear-gradient(90deg, #1e293b, #f1f5f9, #1e293b);"></div>
+              <span class="preset-title">Motion Blur</span>
+            </div>
+            <div class="preset-card" data-filter="brush_stroke" data-category="optics">
+              <div class="preset-thumb" style="background: linear-gradient(90deg, #1e293b 0%, #cbd5e1 35%, #475569 55%, #94a3b8 75%, #1e293b 100%);"></div>
+              <span class="preset-title">Brush Stroke</span>
+            </div>
+            <div class="preset-card" data-filter="zoom_blur" data-category="optics">
+              <div class="preset-thumb" style="background: radial-gradient(circle, #f1f5f9 10%, #64748b 45%, #1e293b 85%);"></div>
+              <span class="preset-title">Radial Zoom</span>
+            </div>
+            <div class="preset-card" data-filter="chromatic" data-category="optics">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.7) 0%, rgba(148, 163, 184, 0.5) 50%, rgba(59, 130, 246, 0.7) 100%);"></div>
+              <span class="preset-title">Chromatic Prism</span>
+            </div>
+            <div class="preset-card" data-filter="pop_art" data-category="retro">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #0f172a 0%, #dc2626 35%, #f59e0b 70%, #fef3c7 100%);"></div>
+              <span class="preset-title">Pop Art</span>
+            </div>
+            <div class="preset-card" data-filter="color_separation" data-category="retro">
+              <div class="preset-thumb" style="background: linear-gradient(90deg, #dc2626 0%, #1e40af 50%, #ca8a04 100%);"></div>
+              <span class="preset-title">Color Split</span>
+            </div>
+            <div class="preset-card" data-filter="thermal" data-category="retro">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #0f172a 0%, #991b1b 35%, #ea580c 70%, #fde047 100%);"></div>
+              <span class="preset-title">Thermal Heat</span>
+            </div>
+            <div class="preset-card" data-filter="duotone" data-category="retro">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #0f172a 0%, #fb7185 100%);"></div>
+              <span class="preset-title">Duotone</span>
+            </div>
+            <div class="preset-card" data-filter="glitch" data-category="optics">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #09090b 20%, #38bdf8 20% 50%, #f43f5e 50% 80%, #09090b 80%);"></div>
+              <span class="preset-title">Glitch</span>
+            </div>
+            <div class="preset-card" data-filter="matrix_ascii" data-category="retro">
+              <div class="preset-thumb" style="background: #022c22; border: 1.5px solid #10b981; color: #10b981; font-family: monospace; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;">&gt;_</div>
+              <span class="preset-title">ASCII Matrix</span>
+            </div>
+            <div class="preset-card" data-filter="liquid_swirl" data-category="optics">
+              <div class="preset-thumb" style="background: conic-gradient(from 45deg, #1e293b, #475569, #94a3b8, #334155, #1e293b);"></div>
+              <span class="preset-title">Liquid Swirl</span>
+            </div>
+            <div class="preset-card" data-filter="reeded_glass" data-category="privacy">
+              <div class="preset-thumb" style="background: linear-gradient(90deg, #1e293b 0%, #94a3b8 25%, #475569 50%, #94a3b8 75%, #1e293b 100%);"></div>
+              <span class="preset-title">Reeded Glass</span>
+            </div>
+            <div class="preset-card" data-filter="ai_cloaking" data-category="privacy">
+              <div class="preset-thumb" style="background: radial-gradient(circle, #38bdf8 20%, #1e293b 80%); border: 1.5px solid #38bdf8;"></div>
+              <span class="preset-title">Face Cloak</span>
+            </div>
+            <div class="preset-card" data-filter="halftone" data-category="retro">
+              <div class="preset-thumb" style="background: radial-gradient(#000 35%, transparent 36%) 0 0/12px 12px, #fff;"></div>
+              <span class="preset-title">Halftone Dots</span>
+            </div>
+            <div class="preset-card" data-filter="blackout" data-category="privacy">
+              <div class="preset-thumb" style="background: #000000; border: 1.5px solid #444;"></div>
+              <span class="preset-title">Solid Blackout</span>
+            </div>
+          </div>
+
+          <!-- 1B: Artistic Paint Brushes Carousel -->
+          <div id="carousel-artistic" class="preset-carousel" style="display: none;">
+            <div class="preset-card active" data-brush="multitone">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #4a2f1d, #7d5236, #d9b28f);"></div>
+              <span class="preset-title">Multi-Tone</span>
+            </div>
+            <div class="preset-card" data-brush="chalk">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #fb7185, #e11d48);"></div>
+              <span class="preset-title">Chalk</span>
+            </div>
+            <div class="preset-card" data-brush="oil">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #2563eb, #1e40af);"></div>
+              <span class="preset-title">Oil Knife</span>
+            </div>
+            <div class="preset-card" data-brush="crayon">
+              <div class="preset-thumb" style="background: #059669;"></div>
+              <span class="preset-title">Crayon</span>
+            </div>
+            <div class="preset-card" data-brush="glitter">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #fef08a, #f59e0b, #b45309);"></div>
+              <span class="preset-title">Glitter</span>
+            </div>
+            <div class="preset-card" data-brush="splatter">
+              <div class="preset-thumb" style="background: linear-gradient(135deg, #f87171, #dc2626);"></div>
+              <span class="preset-title">Splatter</span>
+            </div>
+          </div>
+
+          <!-- 1C: Transparent Stickers Carousel & Subcategories -->
+          <div id="carousel-stickers-container" style="display: none;">
+            <div class="sticker-subtabs" id="sticker-category-tabs">
+              <!-- Populated via JS -->
+            </div>
+            <div id="carousel-stickers" class="preset-carousel">
+              <!-- Populated via JS from stickers-data.js -->
+            </div>
+          </div>
+
+          <!-- 1D: Smart AI Action Shelf -->
+          <div id="shelf-smart-ai" class="smart-ai-shelf" style="display: none;">
+            <div class="ai-action-card">
+              <div class="ai-card-header">
+                <span class="ai-card-title">Face Censor</span>
+                <span class="ai-card-desc">Detect faces & apply oval blur</span>
+              </div>
+              <button id="btn-ai-face" class="btn-pill primary action-btn">Scan Faces</button>
+            </div>
+
+            <div class="ai-action-card">
+              <div class="ai-card-header">
+                <span class="ai-card-title">Sensitive Text</span>
+                <span class="ai-card-desc">Detect ID cards & document text</span>
+              </div>
+              <button id="btn-ai-text" class="btn-pill primary action-btn">Scan Text</button>
+            </div>
+
+            <div class="ai-action-card">
+              <div class="ai-card-header">
+                <span class="ai-card-title">Portrait Bokeh</span>
+                <span class="ai-card-desc">Blur background around subject</span>
+              </div>
+              <button id="btn-ai-background" class="btn-pill primary action-btn">Blur Background</button>
+            </div>
+
+            <div class="ai-action-card">
+              <div class="ai-card-header">
+                <span class="ai-card-title">Object Erase</span>
+                <span class="ai-card-desc">Brush over object, then cleanly erase</span>
+              </div>
+              <button id="btn-inpaint-apply" class="btn-pill primary action-btn">Erase Object</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tier 2: Fixed Unified Navigation & Tool Dock -->
+      <div class="unified-dock">
+        <!-- History Controls (Undo / Redo) -->
+        <div class="dock-group history-controls">
+          <button id="btn-undo" class="icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo last action" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          </button>
+          <button id="btn-redo" class="icon-btn" title="Redo (Ctrl+Y)" aria-label="Redo last action" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+          </button>
+        </div>
+
+        <!-- Mode Segmented Tabs -->
+        <nav class="mode-segmented-bar" aria-label="Editor Modes">
+          <button class="mode-tab active" data-mode="blur" aria-pressed="true">Blur</button>
+          <button class="mode-tab" data-mode="artistic" aria-pressed="false">Artistic</button>
+          <button class="mode-tab" data-mode="stickers" aria-pressed="false">Stickers</button>
+          <button class="mode-tab" data-mode="smart-ai" aria-pressed="false">Auto Detect</button>
+        </nav>
+
+        <!-- Tool Controls (Eraser, Invert, Clear) -->
+        <div class="dock-group tool-controls">
+          <button id="btn-eraser" class="icon-btn" title="Toggle eraser (reveal original)" aria-label="Toggle eraser" aria-pressed="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+          </button>
+          <button id="btn-invert" class="icon-btn" title="Invert blur mask" aria-label="Invert blur mask">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20Z" fill="currentColor"/></svg>
+          </button>
+          <button id="btn-clear" class="icon-btn" title="Reset all edits" aria-label="Reset all edits">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- App Version & Copyright Dedication Footer -->
+      <div class="app-footer-credit">
+        <span class="app-version">v2.5.0</span>
+        <span class="footer-separator">•</span>
+        <span class="footer-dedication">made by FlashSolver for Hanim 🫶</span>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="js/app.js?v=20"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      if (window.caches) {
+        caches.keys().then(keys => {
+          keys.filter(k => k.startsWith('blur-mosaic-v') && k !== 'blur-mosaic-v21').forEach(k => caches.delete(k));
+        });
+      }
+      navigator.serviceWorker.register('./service-worker.js?v=20').catch(() => {});
+    }
+  </script>
+</body>
+</html>

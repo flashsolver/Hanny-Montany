@@ -1,0 +1,17 @@
+{
+  "name": "Hanny Montany Studio",
+  "short_name": "Hanny Montany",
+  "description": "100% offline, private photo blur, creative censorship, and artistic studio.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "images/logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
