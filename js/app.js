@@ -507,7 +507,7 @@ class BlurMosaicApp {
       } else if (this.pendingAI.type === 'background') {
         AITools.applyBackgroundMask(this.engine.maskCanvas);
       }
-      this.engine.updateFilteredLayer();
+      this.engine.bakeCurrentFilterStroke();
       this.engine.saveHistoryState();
       this.dismissAIPreview();
       this.showToast('Blur applied.');
@@ -678,6 +678,7 @@ class BlurMosaicApp {
 
   async switchMode(mode) {
     this.currentMode = mode;
+    this.engine.setMode(mode);
 
     // Update active tab button and aria-pressed attributes
     this.modeTabs.forEach(tab => {

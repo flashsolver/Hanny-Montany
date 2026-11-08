@@ -1,11 +1,13 @@
 // Smooth path interpolation and artistic brush rendering engine
 
 export class BrushEngine {
-  constructor(maskCanvas, artisticCanvas = null) {
+  constructor(maskCanvas, artisticCanvas = null, effectsCanvas = null) {
     this.maskCanvas = maskCanvas;
-    this.maskCtx = maskCanvas.getContext('2d');
+    this.maskCtx = maskCanvas ? maskCanvas.getContext('2d') : null;
     this.artisticCanvas = artisticCanvas;
     this.artisticCtx = artisticCanvas ? artisticCanvas.getContext('2d') : null;
+    this.effectsCanvas = effectsCanvas;
+    this.effectsCtx = effectsCanvas ? effectsCanvas.getContext('2d') : null;
 
     this.isDrawing = false;
     this.lastPoint = null;
@@ -93,12 +95,15 @@ export class BrushEngine {
   }
 
   renderPoint(x, y, dx = 0, dy = 0) {
-    // If eraser is active, it erases from both mask and artistic overlay
+    // If eraser is active, it erases from effects, artistic, and mask layers
     if (this.isEraser) {
-      this.eraseAt(this.maskCtx, x, y, this.size, dx, dy);
+      if (this.effectsCtx) {
+        this.eraseAt(this.effectsCtx, x, y, this.size, dx, dy);
+      }
       if (this.artisticCtx) {
         this.eraseAt(this.artisticCtx, x, y, this.size, dx, dy);
       }
+      this.eraseAt(this.maskCtx, x, y, this.size, dx, dy);
       return;
     }
 

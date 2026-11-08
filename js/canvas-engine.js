@@ -27,6 +27,11 @@ export class CanvasEngine {
     this.filteredCanvas = document.createElement('canvas');
     this.filteredCtx = this.filteredCanvas.getContext('2d');
 
+    // Persistent Multi-Effect Stacking Layer (accumulates baked filter strokes & censors)
+    this.effectsCanvas = document.createElement('canvas');
+    this.effectsCtx = this.effectsCanvas.getContext('2d');
+
+    // Live/transient mask for the current in-progress brush stroke or shape
     this.maskCanvas = document.createElement('canvas');
     this.maskCtx = this.maskCanvas.getContext('2d');
 
@@ -34,8 +39,12 @@ export class CanvasEngine {
     this.artisticCtx = this.artisticCanvas.getContext('2d');
 
     // Engines
-    this.brush = new BrushEngine(this.maskCanvas, this.artisticCanvas);
+    this.brush = new BrushEngine(this.maskCanvas, this.artisticCanvas, this.effectsCanvas);
     this.stickers = new StickerEngine(this.displayCanvas);
+
+    // Active Editor Mode ('blur' | 'artistic' | 'stickers' | 'smart-ai')
+    this.activeMode = 'blur';
+    this._isDrawingLiveStroke = false;
 
     // Inspection & HUD flags
     this.showOriginalOnly = false;
@@ -59,6 +68,7 @@ export class CanvasEngine {
     this.filterSize = 50;
     this.filterColor = '#000000';
     this.filterAngle = 0;
+    this._filterDirty = true;
 
     // State & History (~150MB dynamic memory budget)
     this.history = [];
@@ -129,6 +139,10 @@ export class CanvasEngine {
           this.originalCtx.drawImage(this.sourceCanvas, 0, 0);
           this._sourceWasModified = false;
           this._lastSourceData = null;
+
+          this.effectsCanvas.width = w;
+          this.effectsCanvas.height = h;
+          this.effectsCtx.clearRect(0, 0, w, h);
 
           this.maskCanvas.width = w;
           this.maskCanvas.height = h;
@@ -202,6 +216,10 @@ export class CanvasEngine {
     this._sourceWasModified = false;
     this._lastSourceData = null;
 
+    this.effectsCanvas.width = w;
+    this.effectsCanvas.height = h;
+    this.effectsCtx.clearRect(0, 0, w, h);
+
     this.maskCanvas.width = w;
     this.maskCanvas.height = h;
     this.maskCtx.clearRect(0, 0, w, h);
@@ -232,8 +250,8 @@ export class CanvasEngine {
 
   fitToScreen() {
     const rect = this.container.getBoundingClientRect();
-    const cw = Math.round(rect.width) || this.container.clientWidth;
-    const ch = Math.round(rect.height) || this.container.clientHeight;
+    const cw = this.container.clientWidth || Math.round(rect.width);
+    const ch = this.container.clientHeight || Math.round(rect.height);
     const imgW = this.sourceCanvas.width;
     const imgH = this.sourceCanvas.height;
 
@@ -272,14 +290,31 @@ export class CanvasEngine {
     };
   }
 
+  // 0ms instant filter switching (lazy/deferred calculation)
   setFilter(name, intensity = 50, size = 50, color = null, angle = null) {
+    const changed = (
+      this.currentFilter !== name ||
+      this.filterIntensity !== intensity ||
+      this.filterSize !== size ||
+      (color !== null && this.filterColor !== color) ||
+      (angle !== null && this.filterAngle !== angle)
+    );
     this.currentFilter = name;
     this.filterIntensity = intensity;
     this.filterSize = size;
     if (color !== null) this.filterColor = color;
     if (angle !== null) this.filterAngle = angle;
+    if (changed) {
+      this._filterDirty = true;
+    }
+  }
+
+  ensureFilteredLayer() {
+    if (!this._filterDirty && this.filteredCanvas.width === this.sourceCanvas.width && this.filteredCanvas.height === this.sourceCanvas.height) {
+      return;
+    }
     this.updateFilteredLayer();
-    this.render();
+    this._filterDirty = false;
   }
 
   updateFilteredLayer() {
@@ -311,10 +346,48 @@ export class CanvasEngine {
     this.setShape(shape);
   }
 
+  setMode(mode) {
+    this.activeMode = mode;
+  }
+
+  bakeCurrentFilterStroke() {
+    const w = this.sourceCanvas.width;
+    const h = this.sourceCanvas.height;
+    if (!w || !h) return;
+
+    this.ensureFilteredLayer();
+
+    if (!this._compBuffer) {
+      this._compBuffer = document.createElement('canvas');
+      this._compCtx = this._compBuffer.getContext('2d');
+    }
+    const buf = this._compBuffer;
+    const bCtx = this._compCtx;
+
+    if (buf.width !== w || buf.height !== h) {
+      buf.width = w;
+      buf.height = h;
+    }
+
+    // Isolate revealed filtered pixels under the active mask
+    bCtx.clearRect(0, 0, w, h);
+    bCtx.drawImage(this.filteredCanvas, 0, 0);
+    bCtx.globalCompositeOperation = 'destination-in';
+    bCtx.drawImage(this.maskCanvas, 0, 0);
+    bCtx.globalCompositeOperation = 'source-over';
+
+    // Stamp / bake directly onto persistent effectsCanvas
+    this.effectsCtx.drawImage(buf, 0, 0);
+
+    // Clear transient maskCanvas
+    this.maskCtx.clearRect(0, 0, w, h);
+  }
+
   setFilterAngle(angle) {
-    this.filterAngle = angle;
-    this.updateFilteredLayer();
-    this.render();
+    if (this.filterAngle !== angle) {
+      this.filterAngle = angle;
+      this._filterDirty = true;
+    }
   }
 
   initEvents() {
@@ -433,9 +506,16 @@ export class CanvasEngine {
 
     // Brush painting or shape dragging
     if (this.drawShape === 'brush') {
+      this._isDrawingLiveStroke = (!this.brush.isEraser && !this.brush.isArtistic());
+      if (this._isDrawingLiveStroke) {
+        this.ensureFilteredLayer();
+      }
       this.brush.startStroke(imgPt.x, imgPt.y);
       this.render();
     } else {
+      if (!this.brush.isEraser && !this.brush.isArtistic()) {
+        this.ensureFilteredLayer();
+      }
       this.shapeStart = { x: imgPt.x, y: imgPt.y };
       this.shapeCurrent = { x: imgPt.x, y: imgPt.y };
       this.render();
@@ -523,6 +603,10 @@ export class CanvasEngine {
     if (this.drawShape === 'brush') {
       if (this.brush && this.brush.isDrawing) {
         this.brush.endStroke();
+        if (this.activeMode !== 'smart-ai' && !this.brush.isEraser && !this.brush.isArtistic()) {
+          this.bakeCurrentFilterStroke();
+        }
+        this._isDrawingLiveStroke = false;
         this.saveHistoryState();
         this.render();
       }
@@ -541,11 +625,15 @@ export class CanvasEngine {
     this.isPanning = false;
     this.shapeStart = null;
     this.shapeCurrent = null;
+    this._isDrawingLiveStroke = false;
     if (this.stickers && this.stickers.activeAction) {
       this.stickers.endInteraction();
     }
     if (this.brush && this.brush.isDrawing) {
       this.brush.endStroke();
+    }
+    if (this.maskCtx && this.sourceCanvas.width) {
+      this.maskCtx.clearRect(0, 0, this.sourceCanvas.width, this.sourceCanvas.height);
     }
     this.render();
   }
@@ -565,6 +653,20 @@ export class CanvasEngine {
     if (w < 2 && h < 2) return;
 
     if (isEraser) {
+      if (this.effectsCtx) {
+        this.effectsCtx.save();
+        this.effectsCtx.globalCompositeOperation = 'destination-out';
+        this.effectsCtx.fillStyle = 'rgba(0,0,0,1)';
+        this.effectsCtx.beginPath();
+        if (shape === 'rect') {
+          this.effectsCtx.rect(minX, minY, w, h);
+        } else if (shape === 'oval') {
+          this.effectsCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+        }
+        this.effectsCtx.fill();
+        this.effectsCtx.restore();
+      }
+
       this.maskCtx.save();
       this.maskCtx.globalCompositeOperation = 'destination-out';
       this.maskCtx.fillStyle = 'rgba(0,0,0,1)';
@@ -610,6 +712,11 @@ export class CanvasEngine {
     }
     targetCtx.fill();
     targetCtx.restore();
+
+    // If it's a blur/censor shape, bake it immediately into effectsCanvas!
+    if (!isArtistic && this.activeMode !== 'smart-ai') {
+      this.bakeCurrentFilterStroke();
+    }
   }
 
   drawShapePreview(ctx) {
@@ -655,18 +762,18 @@ export class CanvasEngine {
     if (this.displayCanvas.width !== targetW || this.displayCanvas.height !== targetH) {
       this.displayCanvas.width = targetW;
       this.displayCanvas.height = targetH;
+    }
 
-      // Automatically re-center whenever the viewport dimensions change (e.g. mobile layout settle, rotation)
-      if (!this.isUserTransformed && this.sourceCanvas.width && this.sourceCanvas.height) {
-        const pad = 24;
-        const availW = Math.max(10, w - pad * 2);
-        const availH = Math.max(10, h - pad * 2);
-        const scaleX = availW / this.sourceCanvas.width;
-        const scaleY = availH / this.sourceCanvas.height;
-        this.scale = Math.min(scaleX, scaleY, 1.0);
-        this.offsetX = Math.round((w - this.sourceCanvas.width * this.scale) / 2);
-        this.offsetY = Math.round((h - this.sourceCanvas.height * this.scale) / 2);
-      }
+    // Automatically re-center whenever the user has not manually transformed (e.g. mobile layout settle, rotation)
+    if (!this.isUserTransformed && this.sourceCanvas.width && this.sourceCanvas.height) {
+      const pad = 24;
+      const availW = Math.max(10, w - pad * 2);
+      const availH = Math.max(10, h - pad * 2);
+      const scaleX = availW / this.sourceCanvas.width;
+      const scaleY = availH / this.sourceCanvas.height;
+      this.scale = Math.min(scaleX, scaleY, 1.0);
+      this.offsetX = Math.round((w - this.sourceCanvas.width * this.scale) / 2);
+      this.offsetY = Math.round((h - this.sourceCanvas.height * this.scale) / 2);
     }
 
     const ctx = this.displayCtx;
@@ -800,29 +907,35 @@ export class CanvasEngine {
     // 1. Draw Current Base Photo (including any inpainted areas)
     targetCtx.drawImage(this.sourceCanvas, 0, 0);
 
-    // 2. Draw Filtered Layer masked by Alpha Mask
-    if (!this._compBuffer) {
-      this._compBuffer = document.createElement('canvas');
-      this._compCtx = this._compBuffer.getContext('2d');
-    }
-    const buf = this._compBuffer;
-    const bCtx = this._compCtx;
-
-    if (buf.width !== w || buf.height !== h) {
-      buf.width = w;
-      buf.height = h;
+    // 2. Draw Accumulated Persistent Effects Layer (stacked blurs, mosaics, censors)
+    if (this.effectsCanvas && this.effectsCanvas.width) {
+      targetCtx.drawImage(this.effectsCanvas, 0, 0);
     }
 
-    bCtx.clearRect(0, 0, w, h);
-    bCtx.drawImage(this.filteredCanvas, 0, 0);
-    bCtx.globalCompositeOperation = 'destination-in';
-    bCtx.drawImage(this.maskCanvas, 0, 0);
-    bCtx.globalCompositeOperation = 'source-over';
+    // 3. Draw Active In-Progress Live Stroke Preview
+    if (this._isDrawingLiveStroke && this.maskCanvas && this.maskCanvas.width) {
+      if (!this._compBuffer) {
+        this._compBuffer = document.createElement('canvas');
+        this._compCtx = this._compBuffer.getContext('2d');
+      }
+      const buf = this._compBuffer;
+      const bCtx = this._compCtx;
 
-    // Draw masked filter over base
-    targetCtx.drawImage(buf, 0, 0);
+      if (buf.width !== w || buf.height !== h) {
+        buf.width = w;
+        buf.height = h;
+      }
 
-    // 3. Draw Artistic Overlay Layer (paint strokes, chalk, glitter)
+      bCtx.clearRect(0, 0, w, h);
+      bCtx.drawImage(this.filteredCanvas, 0, 0);
+      bCtx.globalCompositeOperation = 'destination-in';
+      bCtx.drawImage(this.maskCanvas, 0, 0);
+      bCtx.globalCompositeOperation = 'source-over';
+
+      targetCtx.drawImage(buf, 0, 0);
+    }
+
+    // 4. Draw Artistic Overlay Layer (paint strokes, chalk, glitter)
     targetCtx.drawImage(this.artisticCanvas, 0, 0);
   }
 
@@ -837,7 +950,8 @@ export class CanvasEngine {
     const h = this.sourceCanvas.height;
     if (!w || !h) return;
 
-    // Save mask image data, artistic image data, and clone stickers
+    // Save effects image data, mask image data, artistic image data, and clone stickers
+    const effectsData = this.effectsCtx.getImageData(0, 0, w, h);
     const maskData = this.maskCtx.getImageData(0, 0, w, h);
     const artisticData = this.artisticCtx.getImageData(0, 0, w, h);
     const stickersData = this.stickers.stickers.map(s => ({
@@ -857,6 +971,7 @@ export class CanvasEngine {
     }
 
     const state = {
+      effectsData,
       maskData,
       artisticData,
       stickersData,
@@ -865,7 +980,7 @@ export class CanvasEngine {
     };
 
     // Calculate dynamic byte footprint for memory budget
-    let byteSize = maskData.data.byteLength + artisticData.data.byteLength;
+    let byteSize = effectsData.data.byteLength + maskData.data.byteLength + artisticData.data.byteLength;
     if (sourceData && !sourceIsShared) {
       byteSize += sourceData.data.byteLength;
     }
@@ -920,10 +1035,16 @@ export class CanvasEngine {
 
   restoreHistoryState(state) {
     if (!state) return;
+    if (state.effectsData) {
+      this.effectsCtx.putImageData(state.effectsData, 0, 0);
+    } else {
+      this.effectsCtx.clearRect(0, 0, this.sourceCanvas.width, this.sourceCanvas.height);
+    }
     this.maskCtx.putImageData(state.maskData, 0, 0);
     this.artisticCtx.putImageData(state.artisticData, 0, 0);
     this.stickers.stickers = state.stickersData.map(s => ({ ...s }));
     this.stickers.selectedSticker = null;
+    this._isDrawingLiveStroke = false;
 
     if (state.sourceData) {
       this.sourceCtx.putImageData(state.sourceData, 0, 0);
@@ -939,15 +1060,19 @@ export class CanvasEngine {
   resetAll() {
     const w = this.sourceCanvas.width;
     const h = this.sourceCanvas.height;
+    this.effectsCtx.clearRect(0, 0, w, h);
     this.maskCtx.clearRect(0, 0, w, h);
     this.artisticCtx.clearRect(0, 0, w, h);
     this.stickers.clear();
+    this._isDrawingLiveStroke = false;
     if (this._sourceWasModified) {
       this.sourceCtx.drawImage(this.originalCanvas, 0, 0);
       this.updateFilteredLayer();
       this._sourceWasModified = false;
       this._lastSourceData = null;
     }
+    this.history = [];
+    this.historyIndex = -1;
     this.saveHistoryState();
     this.render();
   }
@@ -956,16 +1081,65 @@ export class CanvasEngine {
     const w = this.sourceCanvas.width;
     const h = this.sourceCanvas.height;
     if (!w || !h) return;
-    const imgData = this.maskCtx.getImageData(0, 0, w, h);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const invA = 255 - data[i + 3];
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-      data[i + 3] = invA;
+
+    // Check if maskCanvas has any painted pixels
+    const maskImg = this.maskCtx.getImageData(0, 0, w, h);
+    const mData = maskImg.data;
+    let hasMask = false;
+    for (let i = 3; i < mData.length; i += 4) {
+      if (mData[i] > 0) {
+        hasMask = true;
+        break;
+      }
     }
-    this.maskCtx.putImageData(imgData, 0, 0);
+
+    if (hasMask) {
+      for (let i = 0; i < mData.length; i += 4) {
+        mData[i] = 255;
+        mData[i + 1] = 255;
+        mData[i + 2] = 255;
+        mData[i + 3] = 255 - mData[i + 3];
+      }
+      this.maskCtx.putImageData(maskImg, 0, 0);
+      if (this.activeMode !== 'smart-ai') {
+        this.bakeCurrentFilterStroke();
+      }
+      this.saveHistoryState();
+      this.render();
+      return;
+    }
+
+    // Invert effectsCanvas alpha spotlight
+    if (!this._compBuffer) {
+      this._compBuffer = document.createElement('canvas');
+      this._compCtx = this._compBuffer.getContext('2d');
+    }
+    const buf = this._compBuffer;
+    const bCtx = this._compCtx;
+    if (buf.width !== w || buf.height !== h) {
+      buf.width = w;
+      buf.height = h;
+    }
+
+    const effImg = this.effectsCtx.getImageData(0, 0, w, h);
+    const eData = effImg.data;
+    const invMask = bCtx.createImageData(w, h);
+    const invData = invMask.data;
+    for (let i = 0; i < eData.length; i += 4) {
+      invData[i] = 255;
+      invData[i + 1] = 255;
+      invData[i + 2] = 255;
+      invData[i + 3] = 255 - eData[i + 3];
+    }
+    bCtx.putImageData(invMask, 0, 0);
+
+    this.ensureFilteredLayer();
+    bCtx.globalCompositeOperation = 'source-in';
+    bCtx.drawImage(this.filteredCanvas, 0, 0);
+    bCtx.globalCompositeOperation = 'source-over';
+
+    this.effectsCtx.clearRect(0, 0, w, h);
+    this.effectsCtx.drawImage(buf, 0, 0);
     this.saveHistoryState();
     this.render();
   }

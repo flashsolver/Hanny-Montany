@@ -1,7 +1,7 @@
 // Service Worker for Hanny Montany Studio PWA
 // 100% Offline-First Architecture
 
-const CACHE_NAME = 'hanny-montany-v4';
+const CACHE_NAME = 'hanny-montany-v5';
 
 const PRECACHE_ASSETS = [
   './',
