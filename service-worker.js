@@ -1,7 +1,7 @@
 // Service Worker for Hanny Montany Studio PWA
 // 100% Offline-First Architecture
 
-const CACHE_NAME = 'hanny-montany-v7';
+const CACHE_NAME = 'hanny-montany-v8';
 
 const PRECACHE_ASSETS = [
   './',
@@ -72,9 +72,28 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Cache-first with network revalidation for all static assets
+  // Network-first with cache fallback for code assets (.js, .css, .json)
+  const url = new URL(e.request.url);
+  const isCodeAsset = url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.endsWith('.json');
+
+  if (isCodeAsset) {
+    e.respondWith(
+      fetch(e.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone)).catch(() => {});
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Cache-first with network revalidation for media assets (images, icons)
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((cachedResponse) => {
+    caches.match(e.request).then((cachedResponse) => {
       const fetchPromise = fetch(e.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {

@@ -90,6 +90,8 @@ export class CanvasEngine {
     this.isPanning = false;
     this.isPanToolActive = false;
     this.prevPinchDist = 0;
+    this.prevMid = null;
+    this.panLast = null;
     this.panStart = { x: 0, y: 0 };
 
     this.initEvents();
@@ -484,7 +486,7 @@ export class CanvasEngine {
     if (this.isPanToolActive || e.button === 1 || e.buttons === 4 || e.altKey) {
       this.isPanning = true;
       this.isUserTransformed = true;
-      this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY };
+      this.panLast = { x: e.clientX, y: e.clientY };
       if (this.displayCanvas) this.displayCanvas.style.cursor = 'grabbing';
       return;
     }
@@ -500,6 +502,7 @@ export class CanvasEngine {
       }
       const [p1, p2] = Array.from(this.activePointers.values());
       this.prevPinchDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      this.prevMid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       this.isPanning = true;
       return;
     }
@@ -559,11 +562,18 @@ export class CanvasEngine {
     if (this.activePointers.size === 2) {
       const [p1, p2] = Array.from(this.activePointers.values());
       const curDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+
+      // Simultaneous translation pan (moves picture smoothly with fingers)
+      if (this.prevMid) {
+        this.offsetX += (midX - this.prevMid.x);
+        this.offsetY += (midY - this.prevMid.y);
+      }
+      this.prevMid = { x: midX, y: midY };
 
       if (this.prevPinchDist > 0) {
         const factor = curDist / this.prevPinchDist;
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
         const rect = this.container.getBoundingClientRect();
         const lX = midX - rect.left;
         const lY = midY - rect.top;
@@ -572,15 +582,18 @@ export class CanvasEngine {
         this.offsetX = lX - (lX - this.offsetX) * (newScale / this.scale);
         this.offsetY = lY - (lY - this.offsetY) * (newScale / this.scale);
         this.scale = newScale;
-        this.render();
       }
       this.prevPinchDist = curDist;
+      this.render();
       return;
     }
 
-    if (this.isPanning) {
-      this.offsetX = e.clientX - this.panStart.x;
-      this.offsetY = e.clientY - this.panStart.y;
+    if (this.isPanning && this.panLast) {
+      const dx = e.clientX - this.panLast.x;
+      const dy = e.clientY - this.panLast.y;
+      this.offsetX += dx;
+      this.offsetY += dy;
+      this.panLast = { x: e.clientX, y: e.clientY };
       this.render();
       return;
     }
@@ -619,7 +632,11 @@ export class CanvasEngine {
 
     if (this.activePointers.size < 2) {
       this.prevPinchDist = 0;
+      this.prevMid = null;
+    }
+    if (this.activePointers.size === 0) {
       this.isPanning = false;
+      this.panLast = null;
       if (this.displayCanvas) {
         this.displayCanvas.style.cursor = this.isPanToolActive ? 'grab' : '';
       }
@@ -658,7 +675,9 @@ export class CanvasEngine {
   cancelAllGestures() {
     this.activePointers.clear();
     this.prevPinchDist = 0;
+    this.prevMid = null;
     this.isPanning = false;
+    this.panLast = null;
     if (this.displayCanvas) {
       this.displayCanvas.style.cursor = this.isPanToolActive ? 'grab' : '';
     }
