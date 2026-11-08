@@ -51,6 +51,7 @@ export class CanvasEngine {
     this.offsetY = 0;
     this.minScale = 0.2;
     this.maxScale = 5.0;
+    this.isUserTransformed = false;
 
     // Filter settings
     this.currentFilter = 'natural_blur';
@@ -146,6 +147,23 @@ export class CanvasEngine {
           this.saveHistoryState();
           this.render();
 
+          // Settle check: re-fit once layout has settled
+          requestAnimationFrame(() => {
+            if (!this.isUserTransformed) {
+              this.fitToScreen();
+            }
+          });
+          setTimeout(() => {
+            if (!this.isUserTransformed) {
+              this.fitToScreen();
+            }
+          }, 60);
+          setTimeout(() => {
+            if (!this.isUserTransformed) {
+              this.fitToScreen();
+            }
+          }, 250);
+
           if (wasDownscaled && typeof onDownscaled === 'function') {
             onDownscaled(origW, origH, w, h);
           }
@@ -201,22 +219,29 @@ export class CanvasEngine {
     this.saveHistoryState();
     this.render();
 
+    requestAnimationFrame(() => {
+      if (!this.isUserTransformed) {
+        this.fitToScreen();
+      }
+    });
+
     if (wasDownscaled && typeof onDownscaled === 'function') {
       onDownscaled(origW, origH, w, h);
     }
   }
 
   fitToScreen() {
-    const cw = this.container.clientWidth;
-    const ch = this.container.clientHeight;
+    const rect = this.container.getBoundingClientRect();
+    const cw = Math.round(rect.width) || this.container.clientWidth;
+    const ch = Math.round(rect.height) || this.container.clientHeight;
     const imgW = this.sourceCanvas.width;
     const imgH = this.sourceCanvas.height;
 
     if (!imgW || !imgH || !cw || !ch) return;
 
     const pad = 24;
-    const availW = cw - pad * 2;
-    const availH = ch - pad * 2;
+    const availW = Math.max(10, cw - pad * 2);
+    const availH = Math.max(10, ch - pad * 2);
 
     const scaleX = availW / imgW;
     const scaleY = availH / imgH;
@@ -224,6 +249,7 @@ export class CanvasEngine {
 
     this.offsetX = Math.round((cw - imgW * this.scale) / 2);
     this.offsetY = Math.round((ch - imgH * this.scale) / 2);
+    this.isUserTransformed = false;
 
     this.render();
   }
@@ -314,6 +340,7 @@ export class CanvasEngine {
       this.offsetX = mouseX - (mouseX - this.offsetX) * (newScale / this.scale);
       this.offsetY = mouseY - (mouseY - this.offsetY) * (newScale / this.scale);
       this.scale = newScale;
+      this.isUserTransformed = true;
 
       this.render();
     }, { passive: false });
@@ -322,9 +349,25 @@ export class CanvasEngine {
       e.preventDefault();
     });
 
-    window.addEventListener('resize', () => {
-      this.render();
+    const handleResize = () => {
+      if (!this.isUserTransformed) {
+        this.fitToScreen();
+      } else {
+        this.render();
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', () => {
+      setTimeout(handleResize, 100);
     });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      this.resizeObserver.observe(this.container);
+    }
   }
 
   onPointerDown(e) {
@@ -339,12 +382,14 @@ export class CanvasEngine {
     // Middle-click pan or Spacebar pan
     if (e.button === 1 || e.buttons === 4 || e.altKey) {
       this.isPanning = true;
+      this.isUserTransformed = true;
       this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY };
       return;
     }
 
     // Two finger pinch/pan
     if (this.activePointers.size === 2) {
+      this.isUserTransformed = true;
       if (this.brush && this.brush.isDrawing) {
         this.brush.endStroke();
       }
@@ -597,39 +642,53 @@ export class CanvasEngine {
 
   // --- RENDERING PIPELINE ---
   render() {
-    const ctx = this.displayCtx;
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
+    const rect = this.container.getBoundingClientRect();
+    const w = Math.round(rect.width) || this.container.clientWidth;
+    const h = Math.round(rect.height) || this.container.clientHeight;
 
-    ctx.clearRect(0, 0, w, h);
-
-    if (!this.sourceCanvas.width) return;
-
-    ctx.save();
+    if (!w || !h) return;
 
     const dpr = window.devicePixelRatio || 1;
-    if (this.displayCanvas.width !== w * dpr || this.displayCanvas.height !== h * dpr) {
-      this.displayCanvas.width = w * dpr;
-      this.displayCanvas.height = h * dpr;
-      this.displayCanvas.style.width = `${w}px`;
-      this.displayCanvas.style.height = `${h}px`;
+    const targetW = Math.round(w * dpr);
+    const targetH = Math.round(h * dpr);
+
+    if (this.displayCanvas.width !== targetW || this.displayCanvas.height !== targetH) {
+      this.displayCanvas.width = targetW;
+      this.displayCanvas.height = targetH;
+
+      // Automatically re-center whenever the viewport dimensions change (e.g. mobile layout settle, rotation)
+      if (!this.isUserTransformed && this.sourceCanvas.width && this.sourceCanvas.height) {
+        const pad = 24;
+        const availW = Math.max(10, w - pad * 2);
+        const availH = Math.max(10, h - pad * 2);
+        const scaleX = availW / this.sourceCanvas.width;
+        const scaleY = availH / this.sourceCanvas.height;
+        this.scale = Math.min(scaleX, scaleY, 1.0);
+        this.offsetX = Math.round((w - this.sourceCanvas.width * this.scale) / 2);
+        this.offsetY = Math.round((h - this.sourceCanvas.height * this.scale) / 2);
+      }
     }
 
+    const ctx = this.displayCtx;
+    ctx.save();
+    ctx.clearRect(0, 0, targetW, targetH);
     ctx.scale(dpr, dpr);
 
     // Draw dark workspace checkerboard background
     this.drawCheckerboard(ctx, w, h);
 
-    // Apply viewport transform (pan & zoom)
-    ctx.translate(this.offsetX, this.offsetY);
-    ctx.scale(this.scale, this.scale);
+    if (this.sourceCanvas.width && this.sourceCanvas.height) {
+      // Apply viewport transform (pan & zoom)
+      ctx.translate(this.offsetX, this.offsetY);
+      ctx.scale(this.scale, this.scale);
 
-    // Render composited photo layers
-    this.drawCompositedToContext(ctx);
+      // Render composited photo layers
+      this.drawCompositedToContext(ctx);
 
-    // Draw stickers and active transformation handles
-    if (this.stickers && !this.showOriginalOnly) {
-      this.stickers.render(ctx, true);
+      // Draw stickers and active transformation handles
+      if (this.stickers && !this.showOriginalOnly) {
+        this.stickers.render(ctx, true);
+      }
     }
 
     ctx.restore();

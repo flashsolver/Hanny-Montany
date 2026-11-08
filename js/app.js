@@ -851,3 +851,9 @@ class BlurMosaicApp {
 window.addEventListener('DOMContentLoaded', () => {
   window.app = new BlurMosaicApp();
 });
+
+window.addEventListener('load', () => {
+  if (window.app && window.app.engine && !window.app.engine.isUserTransformed) {
+    window.app.engine.fitToScreen();
+  }
+});
