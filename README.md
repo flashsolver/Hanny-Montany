@@ -42,7 +42,7 @@ Inspired by the touch ergonomics and aesthetic filter fidelity of premium iOS ph
 | **Blur & Mosaic** | Dual-layer alpha masking over 20 visual shaders with 60 FPS brush rendering. | Freehand brush, Rectangle & Oval shapes, Invert mask (spotlight), 5 stroke textures. |
 | **Artistic** | Textured physical media simulation for tactile, stylish redaction. | Harmonized Multi-Tone skin swatches, Chalk/Pastel, Oil Palette Knife, Crayon Wax, Glitter Sparkles, Splatter Spray. |
 | **Stickers** | 18 transparent disguise and privacy vector stamps. | Groucho Marx glasses, Thug Life shades, Bows, Mustache, Cat face, CENSORED bars, Emojis, 360° rotate, scale & opacity. |
-| **Auto Detect** | 100% client-side computer vision with interactive bounding box previews. | Auto Face Censor, Text & Credit Card Redaction, Portrait Bokeh (depth blur), Object Erase inpainting. |
+| **Auto Detect** | 100% client-side computer vision with interactive bounding box previews. | Auto Face Censor, Text & ID Document Redaction, Portrait Bokeh (depth blur), Object Erase inpainting. |
 
 ---
 

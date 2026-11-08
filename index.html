@@ -34,10 +34,9 @@
 
         <!-- Sample selector dropdown -->
         <select id="sample-select" class="sample-select" title="Choose a sample image" aria-label="Sample image">
-          <option value="realistic" selected>Realistic Person</option>
-          <option value="portrait">Artistic Portrait</option>
-          <option value="id-card">ID Card & Text</option>
-          <option value="outdoor">Beach & Landscape</option>
+          <option value="realistic" selected>Portrait (Man)</option>
+          <option value="cat">Cute Cat</option>
+          <option value="horse">Majestic Horse</option>
         </select>
 
         <!-- Upload button -->
@@ -500,7 +499,7 @@
     if ('serviceWorker' in navigator) {
       if (window.caches) {
         caches.keys().then(keys => {
-          keys.filter(k => k.startsWith('blur-mosaic-v') && k !== 'blur-mosaic-v21').forEach(k => caches.delete(k));
+          keys.filter(k => k.startsWith('blur-mosaic-v') && k !== 'blur-mosaic-v23').forEach(k => caches.delete(k));
         });
       }
       navigator.serviceWorker.register('./service-worker.js?v=20').catch(() => {});

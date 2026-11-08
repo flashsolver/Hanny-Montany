@@ -1,5 +1,5 @@
 // Service Worker for Hanny Montany Studio PWA
-const CACHE_NAME = 'blur-mosaic-v21';
+const CACHE_NAME = 'blur-mosaic-v23';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
