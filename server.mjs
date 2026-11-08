@@ -101,9 +101,8 @@ const server = http.createServer((req, res) => {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'SAMEORIGIN',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Access-Control-Allow-Origin': '*',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-      'Content-Security-Policy': "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: *; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';"
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';"
     };
 
     res.writeHead(200, headers);
@@ -126,7 +125,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
-  console.log(`🚀 Blur & Mosaic Web App running!`);
+  console.log(`🚀 Hanny Montany Studio running!`);
   console.log(`👉 Local:   http://localhost:${PORT}`);
   console.log(`👉 Network: Access from your phone on the same Wi-Fi using your PC's IP!`);
   console.log(`======================================================\n`);

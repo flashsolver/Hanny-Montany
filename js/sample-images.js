@@ -4,16 +4,16 @@ export const SAMPLE_IMAGES = [
   {
     id: 'realistic',
     name: 'Portrait (Man)',
-    url: new URL('../images/realistic-person.jpg', import.meta.url).href
+    url: new URL('../images/realistic-person.webp', import.meta.url).href
   },
   {
     id: 'cat',
     name: 'Cute Cat',
-    url: new URL('../images/sample-cat.jpg', import.meta.url).href
+    url: new URL('../images/sample-cat.webp', import.meta.url).href
   },
   {
     id: 'horse',
     name: 'Majestic Horse',
-    url: new URL('../images/sample-horse.jpg', import.meta.url).href
+    url: new URL('../images/sample-horse.webp', import.meta.url).href
   }
 ];

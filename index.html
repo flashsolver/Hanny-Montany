@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0a0a0c">
   <title>Hanny Montany • Privacy & Photo Studio</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="css/style.css?v=21">
 </head>
@@ -17,7 +17,7 @@
     <header class="app-header">
       <div class="brand">
         <div class="logo-badge" title="Hanny Montany Studio">
-          <img src="images/logo.jpg" alt="Hanny Montany Logo" class="brand-logo-img">
+          <img src="images/logo.webp" alt="Hanny Montany Logo" class="brand-logo-img">
         </div>
         <div>
           <div class="brand-title">Hanny Montany</div>
@@ -133,7 +133,7 @@
         <div class="manual-header">
           <div class="manual-brand">
             <div class="logo-badge" style="width: 24px; height: 24px; padding: 0; overflow: hidden;">
-              <img src="images/logo.jpg" alt="Logo" style="width: 100%; height: 100%; object-fit: cover; border-radius: 5px;">
+              <img src="images/logo.webp" alt="Logo" style="width: 100%; height: 100%; object-fit: cover; border-radius: 5px;">
             </div>
             <h3 id="manual-modal-title" style="margin: 0; font-size: 16px;">Hanny Montany Studio Manual</h3>
           </div>
@@ -491,16 +491,7 @@
     </footer>
   </div>
 
-  <script type="module" src="js/app.js?v=21"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      if (window.caches) {
-        caches.keys().then(keys => {
-          keys.filter(k => k.startsWith('blur-mosaic-v') && k !== 'blur-mosaic-v23').forEach(k => caches.delete(k));
-        });
-      }
-      navigator.serviceWorker.register('./service-worker.js?v=21').catch(() => {});
-    }
-  </script>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/sw-register.js"></script>
 </body>
 </html>
