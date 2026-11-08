@@ -167,16 +167,6 @@ export class CanvasEngine {
               this.fitToScreen();
             }
           });
-          setTimeout(() => {
-            if (!this.isUserTransformed) {
-              this.fitToScreen();
-            }
-          }, 60);
-          setTimeout(() => {
-            if (!this.isUserTransformed) {
-              this.fitToScreen();
-            }
-          }, 250);
 
           if (wasDownscaled && typeof onDownscaled === 'function') {
             onDownscaled(origW, origH, w, h);
@@ -283,11 +273,22 @@ export class CanvasEngine {
   }
 
   imageToScreenCoords(imgX, imgY) {
-    const rect = this.container.getBoundingClientRect();
     return {
-      x: imgX * this.scale + this.offsetX + rect.left,
-      y: imgY * this.scale + this.offsetY + rect.top
+      x: imgX * this.scale + this.offsetX,
+      y: imgY * this.scale + this.offsetY
     };
+  }
+
+  _getCompBuffer(w, h) {
+    if (!this._compBuffer) {
+      this._compBuffer = document.createElement('canvas');
+      this._compCtx = this._compBuffer.getContext('2d');
+    }
+    if (this._compBuffer.width !== w || this._compBuffer.height !== h) {
+      this._compBuffer.width = w;
+      this._compBuffer.height = h;
+    }
+    return { buffer: this._compBuffer, ctx: this._compCtx };
   }
 
   // 0ms instant filter switching (lazy/deferred calculation)
@@ -338,12 +339,8 @@ export class CanvasEngine {
     );
   }
 
-  setShape(shape) {
-    this.drawShape = shape;
-  }
-
   setDrawShape(shape) {
-    this.setShape(shape);
+    this.drawShape = shape;
   }
 
   setMode(mode) {
@@ -357,17 +354,7 @@ export class CanvasEngine {
 
     this.ensureFilteredLayer();
 
-    if (!this._compBuffer) {
-      this._compBuffer = document.createElement('canvas');
-      this._compCtx = this._compBuffer.getContext('2d');
-    }
-    const buf = this._compBuffer;
-    const bCtx = this._compCtx;
-
-    if (buf.width !== w || buf.height !== h) {
-      buf.width = w;
-      buf.height = h;
-    }
+    const { buffer: buf, ctx: bCtx } = this._getCompBuffer(w, h);
 
     // Isolate revealed filtered pixels under the active mask
     bCtx.clearRect(0, 0, w, h);
@@ -653,44 +640,19 @@ export class CanvasEngine {
     if (w < 2 && h < 2) return;
 
     if (isEraser) {
-      if (this.effectsCtx) {
-        this.effectsCtx.save();
-        this.effectsCtx.globalCompositeOperation = 'destination-out';
-        this.effectsCtx.fillStyle = 'rgba(0,0,0,1)';
-        this.effectsCtx.beginPath();
+      const contexts = [this.effectsCtx, this.maskCtx, this.artisticCtx].filter(Boolean);
+      for (const ctx of contexts) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0,0,0,1)';
+        ctx.beginPath();
         if (shape === 'rect') {
-          this.effectsCtx.rect(minX, minY, w, h);
+          ctx.rect(minX, minY, w, h);
         } else if (shape === 'oval') {
-          this.effectsCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+          ctx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
         }
-        this.effectsCtx.fill();
-        this.effectsCtx.restore();
-      }
-
-      this.maskCtx.save();
-      this.maskCtx.globalCompositeOperation = 'destination-out';
-      this.maskCtx.fillStyle = 'rgba(0,0,0,1)';
-      this.maskCtx.beginPath();
-      if (shape === 'rect') {
-        this.maskCtx.rect(minX, minY, w, h);
-      } else if (shape === 'oval') {
-        this.maskCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-      }
-      this.maskCtx.fill();
-      this.maskCtx.restore();
-
-      if (this.artisticCtx) {
-        this.artisticCtx.save();
-        this.artisticCtx.globalCompositeOperation = 'destination-out';
-        this.artisticCtx.fillStyle = 'rgba(0,0,0,1)';
-        this.artisticCtx.beginPath();
-        if (shape === 'rect') {
-          this.artisticCtx.rect(minX, minY, w, h);
-        } else if (shape === 'oval') {
-          this.artisticCtx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-        }
-        this.artisticCtx.fill();
-        this.artisticCtx.restore();
+        ctx.fill();
+        ctx.restore();
       }
       return;
     }
@@ -914,17 +876,7 @@ export class CanvasEngine {
 
     // 3. Draw Active In-Progress Live Stroke Preview
     if (this._isDrawingLiveStroke && this.maskCanvas && this.maskCanvas.width) {
-      if (!this._compBuffer) {
-        this._compBuffer = document.createElement('canvas');
-        this._compCtx = this._compBuffer.getContext('2d');
-      }
-      const buf = this._compBuffer;
-      const bCtx = this._compCtx;
-
-      if (buf.width !== w || buf.height !== h) {
-        buf.width = w;
-        buf.height = h;
-      }
+      const { buffer: buf, ctx: bCtx } = this._getCompBuffer(w, h);
 
       bCtx.clearRect(0, 0, w, h);
       bCtx.drawImage(this.filteredCanvas, 0, 0);
@@ -1110,16 +1062,8 @@ export class CanvasEngine {
     }
 
     // Invert effectsCanvas alpha spotlight
-    if (!this._compBuffer) {
-      this._compBuffer = document.createElement('canvas');
-      this._compCtx = this._compBuffer.getContext('2d');
-    }
-    const buf = this._compBuffer;
-    const bCtx = this._compCtx;
-    if (buf.width !== w || buf.height !== h) {
-      buf.width = w;
-      buf.height = h;
-    }
+    const { buffer: buf, ctx: bCtx } = this._getCompBuffer(w, h);
+    bCtx.clearRect(0, 0, w, h);
 
     const effImg = this.effectsCtx.getImageData(0, 0, w, h);
     const eData = effImg.data;
@@ -1168,25 +1112,5 @@ export class CanvasEngine {
         else reject(new Error('Canvas blob export failed'));
       }, format, quality);
     });
-  }
-
-  exportHighRes(format = 'image/jpeg', quality = 0.95) {
-    const w = this.sourceCanvas.width;
-    const h = this.sourceCanvas.height;
-    if (!w || !h) {
-      throw new Error('No image loaded to export');
-    }
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = w;
-    exportCanvas.height = h;
-    const eCtx = exportCanvas.getContext('2d');
-
-    // Draw composited photo layers
-    this.drawCompositedToContext(eCtx);
-
-    // Draw stickers without handles
-    this.stickers.render(eCtx, false);
-
-    return exportCanvas.toDataURL(format, quality);
   }
 }

@@ -141,12 +141,12 @@ export class FilterEngine {
       }
 
       case 'thermal': {
-        this.applyThermalHeatmap(readCtx, tCtx, width, height, intensity);
+        this.applyThermalHeatmap(readCtx, tCtx, width, height, intensity, sizeParam);
         break;
       }
 
       case 'duotone': {
-        this.applyDuotone(readCtx, tCtx, width, height, intensity);
+        this.applyDuotone(readCtx, tCtx, width, height, intensity, sizeParam);
         break;
       }
 
@@ -179,8 +179,7 @@ export class FilterEngine {
 
       case 'film_grain':
       case 'ai_cloaking': {
-        const strength = Math.max(5, Math.round(5 + (intensity / 100) * 45));
-        this.applyFilmGrain(readCtx, tCtx, width, height, strength);
+        this.applyFilmGrain(readCtx, tCtx, width, height, intensity, sizeParam);
         break;
       }
 
@@ -192,7 +191,9 @@ export class FilterEngine {
 
       case 'blackout': {
         tCtx.fillStyle = colorParam || '#000000';
+        tCtx.globalAlpha = Math.max(0.3, (intensity || 100) / 100);
         tCtx.fillRect(0, 0, width, height);
+        tCtx.globalAlpha = 1.0;
         break;
       }
 
@@ -654,16 +655,29 @@ export class FilterEngine {
   }
 
   // --- THERMAL HEATMAP ---
-  static applyThermalHeatmap(a1, a2, a3, a4, a5) {
-    const { sCtx, tCtx, width, height } = this._resolveCtx(a1, a2, a3, a4, a5);
-    const srcImg = sCtx.getImageData(0, 0, width, height);
-    const src = srcImg.data;
+  static applyThermalHeatmap(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: intensity, p2: sizeParam } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const intVal = intensity !== undefined ? intensity : 50;
+    const sizeVal = sizeParam !== undefined ? sizeParam : 50;
+
+    // 1. Infrared optical diffusion stage (downsamples sensor detail to obscure sensitive data)
+    const blurRadius = Math.max(2, Math.round((sizeVal / 100) * 20));
+    tCtx.clearRect(0, 0, width, height);
+    tCtx.drawImage(sCtx.canvas || sCtx, 0, 0);
+    this.fastStackBlur(tCtx, 0, 0, width, height, blurRadius);
+
+    const blurredImg = tCtx.getImageData(0, 0, width, height);
+    const src = blurredImg.data;
     const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
+    // Heat sensitivity curve modulated by intensity
+    const sensitivity = 0.5 + (intVal / 100) * 1.5;
+
     const lut = new Uint8Array(256 * 3);
     for (let i = 0; i < 256; i++) {
-      const t = i / 255;
+      let t = i / 255;
+      t = Math.max(0, Math.min(1, Math.pow(t, 1 / sensitivity)));
       let r, g, b;
       if (t < 0.25) {
         const s = t / 0.25;
@@ -704,34 +718,43 @@ export class FilterEngine {
   }
 
   // --- DUOTONE / RISOGRAPH ---
-  static applyDuotone(a1, a2, a3, a4, a5) {
-    const { sCtx, tCtx, width, height } = this._resolveCtx(a1, a2, a3, a4, a5);
-    const srcImg = sCtx.getImageData(0, 0, width, height);
-    const src = srcImg.data;
-    const outImg = tCtx.createImageData(width, height);
-    const out = outImg.data;
+  static applyDuotone(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: intensity, p2: sizeParam } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
+    const intVal = intensity !== undefined ? intensity : 50;
+    const sizeVal = sizeParam !== undefined ? sizeParam : 50;
 
+    // 1. Privacy downsampling / blur stage (so duotone genuinely obscures text and faces)
+    const blurRadius = Math.max(2, Math.round((sizeVal / 100) * 22));
+    tCtx.clearRect(0, 0, width, height);
+    tCtx.drawImage(sCtx.canvas || sCtx, 0, 0);
+    this.fastStackBlur(tCtx, 0, 0, width, height, blurRadius);
+
+    const blurredImg = tCtx.getImageData(0, 0, width, height);
+    const data = blurredImg.data;
+
+    // 2. Duotone Palette (Deep Indigo to Electric Coral) with contrast gamma
     const dark = [15, 23, 42];
     const light = [251, 113, 133];
+    const contrast = 0.6 + (intVal / 100) * 1.2;
 
     const lut = new Uint8Array(256 * 3);
     for (let i = 0; i < 256; i++) {
-      const t = i / 255;
+      let t = i / 255;
+      t = Math.pow(t, 1 / contrast);
       lut[i * 3] = Math.round(dark[0] * (1 - t) + light[0] * t);
       lut[i * 3 + 1] = Math.round(dark[1] * (1 - t) + light[1] * t);
       lut[i * 3 + 2] = Math.round(dark[2] * (1 - t) + light[2] * t);
     }
 
-    for (let i = 0; i < src.length; i += 4) {
-      const lum = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
       const idx = lum * 3;
-      out[i] = lut[idx];
-      out[i + 1] = lut[idx + 1];
-      out[i + 2] = lut[idx + 2];
-      out[i + 3] = src[i + 3];
+      data[i] = lut[idx];
+      data[i + 1] = lut[idx + 1];
+      data[i + 2] = lut[idx + 2];
     }
 
-    tCtx.putImageData(outImg, 0, 0);
+    tCtx.putImageData(blurredImg, 0, 0);
   }
 
   // --- HALFTONE DOTS ---
@@ -1066,36 +1089,61 @@ export class FilterEngine {
   }
 
   // --- FILM GRAIN & ANALOG TEXTURE ---
-  static applyFilmGrain(a1, a2, a3, a4, a5) {
-    const { sCtx, tCtx, width, height, p1: strength } = this._resolveCtx(a1, a2, a3, a4, a5);
+  static applyFilmGrain(a1, a2, a3, a4, a5, a6) {
+    const { sCtx, tCtx, width, height, p1: intensity, p2: sizeParam } = this._resolveCtx(a1, a2, a3, a4, a5, a6);
     const srcImg = sCtx.getImageData(0, 0, width, height);
     const src = srcImg.data;
     const outImg = tCtx.createImageData(width, height);
     const out = outImg.data;
 
-    const amp = (strength / 100) * 14;
+    const grainIntensity = ((intensity !== undefined ? intensity : 50) / 100);
+    // Grain clump size: 1 (fine 35mm grain) to 4 (chunky 16mm / pushed ISO 3200 grain)
+    const grainSize = Math.max(1, Math.min(4, Math.round(1 + ((sizeParam !== undefined ? sizeParam : 50) / 100) * 3)));
+    // Organic amplitude range (clearly tactile and visible across all displays)
+    const amp = Math.round(20 + grainIntensity * 70);
+
+    // Organic 256x256 silver-halide noise tile with Gaussian distribution
+    const tileSize = 256;
+    const tileMask = tileSize - 1;
+    if (!this._grainTile) {
+      this._grainTile = new Int8Array(tileSize * tileSize);
+      let seed = 48271;
+      for (let i = 0; i < this._grainTile.length; i++) {
+        seed = (seed * 16807) % 2147483647;
+        const n1 = (seed / 2147483647) - 0.5;
+        seed = (seed * 16807) % 2147483647;
+        const n2 = (seed / 2147483647) - 0.5;
+        this._grainTile[i] = Math.round((n1 + n2) * 127);
+      }
+    }
+    const noiseTile = this._grainTile;
 
     for (let y = 0; y < height; y++) {
-      const yWave = Math.sin(y * 0.73);
+      const tileY = Math.floor(y / grainSize) & tileMask;
+      const rowOffset = y * width * 4;
+      const tileRowOffset = tileY * tileSize;
+
       for (let x = 0; x < width; x++) {
-        const xWave = Math.cos(x * 0.89);
-        const noise = (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+        const tileX = Math.floor(x / grainSize) & tileMask;
+        const rawNoise = noiseTile[tileRowOffset + tileX];
+        const idx = rowOffset + (x * 4);
 
-        const delta = Math.round((xWave * yWave * 0.75 + noise * 0.25) * amp);
+        const r = src[idx];
+        const g = src[idx + 1];
+        const b = src[idx + 2];
+        const lum = (r * 299 + g * 587 + b * 114) / 1000;
 
-        const idx = (y * width + x) * 4;
-        out[idx] = Math.max(0, Math.min(255, src[idx] + delta));
-        out[idx + 1] = Math.max(0, Math.min(255, src[idx + 1] + delta));
-        out[idx + 2] = Math.max(0, Math.min(255, src[idx + 2] + delta));
+        // Film response: realistic grain is strong in midtones and shadows, soft in highlights
+        const lumFactor = lum > 220 ? (255 - lum) / 35 : (lum < 30 ? (lum + 10) / 40 : 1.0);
+        const delta = Math.round((rawNoise / 127) * amp * lumFactor);
+
+        out[idx] = Math.max(0, Math.min(255, r + delta));
+        out[idx + 1] = Math.max(0, Math.min(255, g + delta));
+        out[idx + 2] = Math.max(0, Math.min(255, b + delta));
         out[idx + 3] = src[idx + 3];
       }
     }
 
     tCtx.putImageData(outImg, 0, 0);
-  }
-
-  // Backwards compatibility alias
-  static applyAiCloaking(a1, a2, a3, a4, a5) {
-    return this.applyFilmGrain(a1, a2, a3, a4, a5);
   }
 }

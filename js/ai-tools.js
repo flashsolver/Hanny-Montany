@@ -353,14 +353,6 @@ export class AITools {
         }
       }
 
-      if (clusterCount === 0) {
-        boxes.push({
-          x: Math.round(w * 0.08),
-          y: bY,
-          width: Math.round(w * 0.84),
-          height: bH
-        });
-      }
     }
 
     return boxes;
@@ -384,14 +376,6 @@ export class AITools {
       mCtx.fill();
     }
     mCtx.restore();
-  }
-
-  /**
-   * Automatically detects text lines / sensitive blocks and applies mask immediately
-   */
-  static detectAndBlurText(sourceCanvas, maskCanvas) {
-    const boxes = this.detectText(sourceCanvas);
-    this.applyTextMask(maskCanvas, boxes);
   }
 
   /**

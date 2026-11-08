@@ -1,7 +1,7 @@
 // Service Worker for Hanny Montany Studio PWA
 // 100% Offline-First Architecture
 
-const CACHE_NAME = 'hanny-montany-v5';
+const CACHE_NAME = 'hanny-montany-v6';
 
 const PRECACHE_ASSETS = [
   './',
@@ -12,7 +12,8 @@ const PRECACHE_ASSETS = [
   './js/canvas-engine.js',
   './js/filters.js',
   './js/brush-engine.js',
-  './js/sticker-engine.js',
+  './js/stickers-engine.js',
+  './js/stickers-data.js',
   './js/ai-tools.js',
   './js/modal-manager.js',
   './js/manual-data.js',

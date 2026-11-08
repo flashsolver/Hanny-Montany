@@ -70,7 +70,6 @@ class BlurMosaicApp {
     this.btnRedo = document.getElementById('btn-redo');
     this.btnEraser = document.getElementById('btn-eraser');
     this.btnInvert = document.getElementById('btn-invert');
-    this.btnInvertMask = document.getElementById('btn-invert-mask');
     this.btnClear = document.getElementById('btn-clear');
     this.btnExport = document.getElementById('btn-export');
     this.btnResetZoom = document.getElementById('btn-reset-zoom');
@@ -391,13 +390,6 @@ class BlurMosaicApp {
       this.engine.invertMask();
       this.showToast('Mask inverted (reverse censor)');
     });
-
-    if (this.btnInvertMask) {
-      this.btnInvertMask.addEventListener('click', () => {
-        this.engine.invertMask();
-        this.showToast('Mask inverted (reverse censor)');
-      });
-    }
 
     // Modal Triggers
     if (this.btnManual) {

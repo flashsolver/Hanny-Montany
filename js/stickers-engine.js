@@ -126,6 +126,20 @@ export class StickerEngine {
     return null;
   }
 
+  handlePointerDown(x, y, viewScale = 1.0) {
+    const hit = this.hitTest(x, y, viewScale);
+    if (hit) {
+      this.startInteraction(x, y, hit);
+      return hit;
+    }
+    if (this.selectedSticker) {
+      this.selectedSticker = null;
+      if (this.onSelectionChanged) this.onSelectionChanged(null);
+      return true;
+    }
+    return null;
+  }
+
   startInteraction(x, y, hitResult) {
     if (!hitResult) {
       this.selectedSticker = null;
@@ -143,6 +157,7 @@ export class StickerEngine {
 
     this.activeAction = hitResult.handle; // 'body' | 'rotate' | 'scale'
     this.dragStart = { x, y };
+    this.dragStartAngle = Math.atan2(y - this.selectedSticker.y, x - this.selectedSticker.x);
     this.initialTransform = {
       x: this.selectedSticker.x,
       y: this.selectedSticker.y,
@@ -162,8 +177,8 @@ export class StickerEngine {
       s.x = init.x + (x - this.dragStart.x);
       s.y = init.y + (y - this.dragStart.y);
     } else if (this.activeAction === 'rotate') {
-      const angle = Math.atan2(y - s.y, x - s.x);
-      s.rotation = angle + Math.PI / 2;
+      const currentAngle = Math.atan2(y - s.y, x - s.x);
+      s.rotation = init.rotation + (currentAngle - this.dragStartAngle);
     } else if (this.activeAction === 'scale') {
       const initialDist = Math.hypot(this.dragStart.x - s.x, this.dragStart.y - s.y);
       const currentDist = Math.hypot(x - s.x, y - s.y);
