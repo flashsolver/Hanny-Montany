@@ -9,7 +9,7 @@
   <title>Hanny Montany • Privacy & Photo Studio</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/style.css?v=19">
+  <link rel="stylesheet" href="css/style.css?v=21">
 </head>
 <body>
   <div id="app-container">
@@ -101,6 +101,7 @@
       <div class="dark-modal" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
         <h3 id="export-modal-title">Export Clean Photo</h3>
         <p class="export-modal-subtitle">100% On-Device • All EXIF & GPS metadata automatically stripped</p>
+        <div id="export-dimensions" class="export-dimensions" style="font-size: 12px; color: var(--text-muted); margin: -4px 0 12px 0;">Resolution: <span id="export-dimensions-val" style="color: var(--text-main); font-weight: 500;">--</span></div>
 
         <div class="export-field-group">
           <label class="export-label">Format</label>
@@ -143,12 +144,8 @@
 
         <!-- Manual Navigation Tabs -->
         <div class="manual-nav" role="tablist" aria-label="Manual Sections">
-          <button class="manual-nav-pill active" data-manual-tab="start" role="tab" aria-selected="true">Privacy</button>
-          <button class="manual-nav-pill" data-manual-tab="install" role="tab" aria-selected="false">Offline App</button>
-          <button class="manual-nav-pill" data-manual-tab="cloak" role="tab" aria-selected="false">Face Cloak</button>
-          <button class="manual-nav-pill" data-manual-tab="recipes" role="tab" aria-selected="false">Recipes</button>
-          <button class="manual-nav-pill" data-manual-tab="modes" role="tab" aria-selected="false">4 Modes</button>
-          <button class="manual-nav-pill" data-manual-tab="filters" role="tab" aria-selected="false">20 Filters</button>
+          <button class="manual-nav-pill active" data-manual-tab="start" role="tab" aria-selected="true">Start</button>
+          <button class="manual-nav-pill" data-manual-tab="modes" role="tab" aria-selected="false">Tools</button>
           <button class="manual-nav-pill" data-manual-tab="shortcuts" role="tab" aria-selected="false">Shortcuts</button>
         </div>
 
@@ -362,9 +359,9 @@
               <div class="preset-thumb" style="background: linear-gradient(90deg, #1e293b 0%, #94a3b8 25%, #475569 50%, #94a3b8 75%, #1e293b 100%);"></div>
               <span class="preset-title">Reeded Glass</span>
             </div>
-            <div class="preset-card" data-filter="ai_cloaking" data-category="privacy">
-              <div class="preset-thumb" style="background: radial-gradient(circle, #38bdf8 20%, #1e293b 80%); border: 1.5px solid #38bdf8;"></div>
-              <span class="preset-title">Face Cloak</span>
+            <div class="preset-card" data-filter="film_grain" data-category="retro">
+              <div class="preset-thumb" style="background: repeating-radial-gradient(circle at 50% 50%, #475569 0px, #1e293b 2px, #334155 4px); border: 1.5px solid #64748b;"></div>
+              <span class="preset-title">Film Grain</span>
             </div>
             <div class="preset-card" data-filter="halftone" data-category="retro">
               <div class="preset-thumb" style="background: radial-gradient(#000 35%, transparent 36%) 0 0/12px 12px, #fff;"></div>
@@ -419,25 +416,25 @@
             <div class="ai-action-card">
               <div class="ai-card-header">
                 <span class="ai-card-title">Face Censor</span>
-                <span class="ai-card-desc">Detect faces & apply oval blur</span>
+                <span class="ai-card-desc">Rough detection: verify every box</span>
               </div>
               <button id="btn-ai-face" class="btn-pill primary action-btn">Scan Faces</button>
             </div>
 
             <div class="ai-action-card">
               <div class="ai-card-header">
-                <span class="ai-card-title">Sensitive Text</span>
-                <span class="ai-card-desc">Detect ID cards & document text</span>
+                <span class="ai-card-title">Text Redaction</span>
+                <span class="ai-card-desc">Finds text-like areas</span>
               </div>
               <button id="btn-ai-text" class="btn-pill primary action-btn">Scan Text</button>
             </div>
 
             <div class="ai-action-card">
               <div class="ai-card-header">
-                <span class="ai-card-title">Portrait Bokeh</span>
-                <span class="ai-card-desc">Blur background around subject</span>
+                <span class="ai-card-title">Center Focus</span>
+                <span class="ai-card-desc">Fixed ellipse background blur</span>
               </div>
-              <button id="btn-ai-background" class="btn-pill primary action-btn">Blur Background</button>
+              <button id="btn-ai-background" class="btn-pill primary action-btn">Center Focus</button>
             </div>
 
             <div class="ai-action-card">
@@ -494,7 +491,7 @@
     </footer>
   </div>
 
-  <script type="module" src="js/app.js?v=20"></script>
+  <script type="module" src="js/app.js?v=21"></script>
   <script>
     if ('serviceWorker' in navigator) {
       if (window.caches) {
@@ -502,7 +499,7 @@
           keys.filter(k => k.startsWith('blur-mosaic-v') && k !== 'blur-mosaic-v23').forEach(k => caches.delete(k));
         });
       }
-      navigator.serviceWorker.register('./service-worker.js?v=20').catch(() => {});
+      navigator.serviceWorker.register('./service-worker.js?v=21').catch(() => {});
     }
   </script>
 </body>

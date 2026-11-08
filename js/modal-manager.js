@@ -29,6 +29,7 @@ export class ModalManager {
     this.exportQualityGroup = document.getElementById('export-quality-group');
     this.exportQualitySlider = document.getElementById('export-quality-slider');
     this.exportQualityVal = document.getElementById('export-quality-val');
+    this.exportDimensionsVal = document.getElementById('export-dimensions-val');
     this.selectedExportFormat = 'image/png';
     this.selectedExportQuality = 0.95;
 
@@ -144,10 +145,17 @@ export class ModalManager {
   }
 
   // --- EXPORT MODAL ---
-  openExportModal(hasImage = true, triggerBtn = null) {
+  openExportModal(hasImage = true, triggerBtn = null, dimensions = null) {
     if (!hasImage) {
       if (this.showToast) this.showToast('Open or select a photo before saving');
       return;
+    }
+    if (this.exportDimensionsVal) {
+      if (dimensions && dimensions.width && dimensions.height) {
+        this.exportDimensionsVal.textContent = `${dimensions.width} × ${dimensions.height} px`;
+      } else {
+        this.exportDimensionsVal.textContent = 'Original Resolution';
+      }
     }
     this._lastFocusTrigger = triggerBtn;
     if (this.modalExport) {

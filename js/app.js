@@ -165,7 +165,7 @@ class BlurMosaicApp {
         this.engine.brush.setSize(val);
         quickSizePills.forEach(p => p.classList.toggle('active', p === pill));
 
-        if (['mosaic', 'hex_mosaic', 'halftone', 'brush_stroke', 'zoom_blur', 'chromatic', 'pop_art', 'color_separation', 'thermal', 'duotone', 'glitch', 'matrix_ascii', 'liquid_swirl', 'reeded_glass', 'ai_cloaking'].includes(this.engine.currentFilter)) {
+        if (['mosaic', 'hex_mosaic', 'halftone', 'brush_stroke', 'zoom_blur', 'chromatic', 'pop_art', 'color_separation', 'thermal', 'duotone', 'glitch', 'matrix_ascii', 'liquid_swirl', 'reeded_glass', 'film_grain', 'ai_cloaking'].includes(this.engine.currentFilter)) {
           this.engine.setFilter(this.engine.currentFilter, parseInt(this.sliderIntensity.value, 10), val);
         }
       });
@@ -340,7 +340,7 @@ class BlurMosaicApp {
         p.classList.toggle('active', parseInt(p.dataset.quickSize, 10) === val);
       });
       // If in filter with size dependence, update filter
-      if (['mosaic', 'hex_mosaic', 'halftone', 'brush_stroke', 'zoom_blur', 'chromatic', 'pop_art', 'color_separation', 'thermal', 'duotone', 'glitch', 'matrix_ascii', 'liquid_swirl', 'reeded_glass', 'ai_cloaking'].includes(this.engine.currentFilter)) {
+      if (['mosaic', 'hex_mosaic', 'halftone', 'brush_stroke', 'zoom_blur', 'chromatic', 'pop_art', 'color_separation', 'thermal', 'duotone', 'glitch', 'matrix_ascii', 'liquid_swirl', 'reeded_glass', 'film_grain', 'ai_cloaking'].includes(this.engine.currentFilter)) {
         this.engine.setFilter(this.engine.currentFilter, parseInt(this.sliderIntensity.value, 10), val);
       }
     });
@@ -412,7 +412,8 @@ class BlurMosaicApp {
     this.btnClear.addEventListener('click', () => this.modals.openClearModal(this.btnClear));
     this.btnExport.addEventListener('click', () => {
       const hasImage = Boolean(this.engine.sourceCanvas && this.engine.sourceCanvas.width);
-      this.modals.openExportModal(hasImage, this.btnExport);
+      const dimensions = hasImage ? { width: this.engine.sourceCanvas.width, height: this.engine.sourceCanvas.height } : null;
+      this.modals.openExportModal(hasImage, this.btnExport, dimensions);
     });
 
     this.btnResetZoom.addEventListener('click', () => {
@@ -461,7 +462,7 @@ class BlurMosaicApp {
       try {
         const faces = await AITools.detectFaces(this.engine.sourceCanvas);
         if (!faces || faces.length === 0) {
-          this.showToast('No faces found in this photo.');
+          this.showToast('No faces found. Draw a box manually.');
           return;
         }
         this.pendingAI = { type: 'faces', data: faces };
@@ -474,11 +475,11 @@ class BlurMosaicApp {
     });
 
     this.btnAIText.addEventListener('click', () => {
-      this.showToast('Scanning for sensitive text...');
+      this.showToast('Scanning for text-like areas...');
       try {
         const boxes = AITools.detectText(this.engine.sourceCanvas);
         if (!boxes || boxes.length === 0) {
-          this.showToast('No readable text found in this photo.');
+          this.showToast('No readable text found. Draw a box manually.');
           return;
         }
         this.pendingAI = { type: 'text', data: boxes };
@@ -549,7 +550,7 @@ class BlurMosaicApp {
         const success = AITools.inpaintObject(this.engine.sourceCanvas, this.engine.maskCanvas);
         if (success) {
           this.engine.updateFilteredLayer();
-          this.engine.saveHistoryState();
+          this.engine.saveHistoryState({ sourceModified: true });
           this.engine.render();
           this.showToast('Object erased.');
         } else {
@@ -665,7 +666,7 @@ class BlurMosaicApp {
   updateAIPreviewSummary() {
     if (!this.pendingAI) return;
     if (this.pendingAI.type === 'background') {
-      this.aiPreviewSummary.textContent = 'Background isolated';
+      this.aiPreviewSummary.textContent = 'Center focus (fixed ellipse)';
       this.btnAIApply.disabled = false;
       return;
     }
@@ -782,21 +783,32 @@ class BlurMosaicApp {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      this.dismissAIPreview();
-      this.engine.loadImage(event.target.result, () => {
-        this.showToast('Could not decode image file');
+    const onDownscaled = (origW, origH, newW, newH) => {
+      this.showToast(`Large photo scaled to ${newW}×${newH} for browser performance`);
+    };
+
+    if (typeof createImageBitmap === 'function') {
+      createImageBitmap(file, { imageOrientation: 'from-image' }).then(bitmap => {
+        this.dismissAIPreview();
+        this.engine.loadImageBitmap(bitmap, onDownscaled);
+        this.showToast(`Opened: ${file.name}`);
+      }).catch(() => {
+        this.loadViaObjectUrl(file, onDownscaled);
       });
-      this.showToast(`Opened: ${file.name}`);
-    };
-    reader.onerror = () => {
-      this.showToast('Could not read file from device');
-    };
-    reader.onabort = () => {
-      this.showToast('File opening cancelled');
-    };
-    reader.readAsDataURL(file);
+    } else {
+      this.loadViaObjectUrl(file, onDownscaled);
+    }
+  }
+
+  loadViaObjectUrl(file, onDownscaled) {
+    const objectUrl = URL.createObjectURL(file);
+    this.dismissAIPreview();
+    this.engine.loadImage(objectUrl, () => {
+      URL.revokeObjectURL(objectUrl);
+      this.showToast('Could not decode image file');
+    }, onDownscaled);
+    this.showToast(`Opened: ${file.name}`);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
   }
 
   showToast(msg) {
@@ -808,20 +820,44 @@ class BlurMosaicApp {
     }, 2200);
   }
 
-  executeExport(format = 'image/png', quality = 0.95) {
+  async executeExport(format = 'image/png', quality = 0.95) {
     try {
       if (!this.engine.sourceCanvas.width || !this.engine.sourceCanvas.height) {
         this.showToast('Open or select a photo before saving');
         return;
       }
-      const dataUrl = this.engine.exportHighRes(format, quality);
+      this.showToast('Preparing clean export...');
+      const blob = await this.engine.exportHighResBlob(format, quality);
       const ext = format === 'image/png' ? 'png' : (format === 'image/webp' ? 'webp' : 'jpg');
+      const filename = `hanny-montany-${Date.now()}.${ext}`;
+
+      // Check for native mobile share sheet support
+      const file = new File([blob], filename, { type: format });
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Hanny Montany Export',
+            text: 'Censored photo exported from Hanny Montany'
+          });
+          this.showToast(`Shared as ${ext.toUpperCase()} (100% clean, EXIF stripped)`);
+          return;
+        } catch (shareErr) {
+          if (shareErr.name === 'AbortError') return;
+          console.warn('Native share failed, falling back to download:', shareErr);
+        }
+      }
+
+      // Standard browser download with object URL and immediate revocation
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = `blur-mosaic-clean-${Date.now()}.${ext}`;
-      link.href = dataUrl;
+      link.download = filename;
+      link.href = url;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+
       this.showToast(`Photo saved as ${ext.toUpperCase()} (100% clean, EXIF stripped)`);
     } catch (err) {
       console.error('Export error:', err);

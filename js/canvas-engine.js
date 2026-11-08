@@ -28,6 +28,12 @@ export class CanvasEngine {
     this.sourceCanvas = document.createElement('canvas');
     this.sourceCtx = this.sourceCanvas.getContext('2d');
 
+    // Pristine original image buffer (preserves untouched photo across object erasures)
+    this.originalCanvas = document.createElement('canvas');
+    this.originalCtx = this.originalCanvas.getContext('2d');
+    this._sourceWasModified = false;
+    this._lastSourceData = null;
+
     this.filteredCanvas = document.createElement('canvas');
     this.filteredCtx = this.filteredCanvas.getContext('2d');
 
@@ -64,10 +70,11 @@ export class CanvasEngine {
     this.filterColor = '#000000';
     this.filterAngle = 0; // 0° Horizontal brush stroke smear
 
-    // State & History
+    // State & History (~150MB dynamic memory budget)
     this.history = [];
     this.historyIndex = -1;
-    this.maxHistory = 15;
+    this.maxHistoryBytes = 150 * 1024 * 1024;
+    this.maxHistoryItems = 30;
     this.onHistoryChanged = null;
 
     // AI Preview Bounding Boxes
@@ -85,7 +92,7 @@ export class CanvasEngine {
     this.initEvents();
   }
 
-  loadImage(imageSource, onError = null) {
+  loadImage(imageSource, onError = null, onDownscaled = null) {
     const isDataOrBlob = typeof imageSource === 'string' && (imageSource.startsWith('data:') || imageSource.startsWith('blob:'));
     const tryLoad = (useCrossOrigin) => {
       const img = new Image();
@@ -110,17 +117,29 @@ export class CanvasEngine {
           return;
         }
 
+        const origW = w;
+        const origH = h;
+        let wasDownscaled = false;
+
         // Guard against browser canvas crash on excessive resolutions (e.g. 50MP RAW photos)
         const maxDim = 3200;
         if (w > maxDim || h > maxDim) {
           const ratio = Math.min(maxDim / w, maxDim / h);
           w = Math.round(w * ratio);
           h = Math.round(h * ratio);
+          wasDownscaled = true;
         }
 
         this.sourceCanvas.width = w;
         this.sourceCanvas.height = h;
         this.sourceCtx.drawImage(img, 0, 0, w, h);
+
+        // Keep pristine copy of the original image
+        this.originalCanvas.width = w;
+        this.originalCanvas.height = h;
+        this.originalCtx.drawImage(this.sourceCanvas, 0, 0);
+        this._sourceWasModified = false;
+        this._lastSourceData = null;
 
         this.maskCanvas.width = w;
         this.maskCanvas.height = h;
@@ -139,11 +158,63 @@ export class CanvasEngine {
         this.updateFilteredLayer();
         this.saveHistoryState();
         this.render();
+
+        if (wasDownscaled && typeof onDownscaled === 'function') {
+          onDownscaled(origW, origH, w, h);
+        }
       };
       img.src = imageSource;
     };
 
     tryLoad(true);
+  }
+
+  loadImageBitmap(bitmap, onDownscaled = null) {
+    let w = bitmap.width;
+    let h = bitmap.height;
+    if (w < 1 || h < 1) return;
+
+    const origW = w;
+    const origH = h;
+    let wasDownscaled = false;
+    const maxDim = 3200;
+    if (w > maxDim || h > maxDim) {
+      const ratio = Math.min(maxDim / w, maxDim / h);
+      w = Math.round(w * ratio);
+      h = Math.round(h * ratio);
+      wasDownscaled = true;
+    }
+
+    this.sourceCanvas.width = w;
+    this.sourceCanvas.height = h;
+    this.sourceCtx.drawImage(bitmap, 0, 0, w, h);
+
+    this.originalCanvas.width = w;
+    this.originalCanvas.height = h;
+    this.originalCtx.drawImage(this.sourceCanvas, 0, 0);
+    this._sourceWasModified = false;
+    this._lastSourceData = null;
+
+    this.maskCanvas.width = w;
+    this.maskCanvas.height = h;
+    this.maskCtx.clearRect(0, 0, w, h);
+
+    this.artisticCanvas.width = w;
+    this.artisticCanvas.height = h;
+    this.artisticCtx.clearRect(0, 0, w, h);
+
+    this.stickers.clear();
+    this.history = [];
+    this.historyIndex = -1;
+
+    this.fitToScreen();
+    this.updateFilteredLayer();
+    this.saveHistoryState();
+    this.render();
+
+    if (wasDownscaled && typeof onDownscaled === 'function') {
+      onDownscaled(origW, origH, w, h);
+    }
   }
 
   fitToScreen() {
@@ -693,13 +764,14 @@ export class CanvasEngine {
     const w = this.sourceCanvas.width;
     const h = this.sourceCanvas.height;
 
-    // 1. Draw Original Base Photo
-    targetCtx.drawImage(this.sourceCanvas, 0, 0);
-
     // If in Hold-to-Compare mode, only the pristine base photo is drawn
     if (this.showOriginalOnly) {
+      targetCtx.drawImage(this.originalCanvas || this.sourceCanvas, 0, 0);
       return;
     }
+
+    // 1. Draw Current Base Photo (including any inpainted areas)
+    targetCtx.drawImage(this.sourceCanvas, 0, 0);
 
     // 2. Draw Filtered Layer masked by Alpha Mask
     // Use an offscreen buffer to apply the mask cleanly
@@ -729,7 +801,7 @@ export class CanvasEngine {
   }
 
   // --- UNDO / REDO HISTORY ---
-  saveHistoryState() {
+  saveHistoryState(options = {}) {
     // Truncate redo states
     if (this.historyIndex < this.history.length - 1) {
       this.history = this.history.slice(0, this.historyIndex + 1);
@@ -737,6 +809,7 @@ export class CanvasEngine {
 
     const w = this.sourceCanvas.width;
     const h = this.sourceCanvas.height;
+    if (!w || !h) return;
 
     // Save mask image data, artistic image data, and clone stickers
     const maskData = this.maskCtx.getImageData(0, 0, w, h);
@@ -745,12 +818,46 @@ export class CanvasEngine {
       ...s
     }));
 
-    this.history.push({ maskData, artisticData, stickersData });
-    if (this.history.length > this.maxHistory) {
-      this.history.shift();
-    } else {
-      this.historyIndex++;
+    let sourceData = null;
+    let sourceIsShared = false;
+
+    if (options.sourceModified) {
+      sourceData = this.sourceCtx.getImageData(0, 0, w, h);
+      this._lastSourceData = sourceData;
+      this._sourceWasModified = true;
+    } else if (this._lastSourceData) {
+      sourceData = this._lastSourceData;
+      sourceIsShared = true;
     }
+
+    const state = {
+      maskData,
+      artisticData,
+      stickersData,
+      sourceData,
+      sourceIsShared
+    };
+
+    // Calculate dynamic byte footprint for memory budget
+    let byteSize = maskData.data.byteLength + artisticData.data.byteLength;
+    if (sourceData && !sourceIsShared) {
+      byteSize += sourceData.data.byteLength;
+    }
+    state.byteSize = byteSize;
+
+    this.history.push(state);
+
+    // Evict oldest states when exceeding 150MB byte budget or item limit
+    const calcTotalBytes = () => this.history.reduce((acc, s) => acc + (s.byteSize || 0), 0);
+
+    while (this.history.length > 1 && (calcTotalBytes() > this.maxHistoryBytes || this.history.length > this.maxHistoryItems)) {
+      this.history.shift();
+      if (this.historyIndex > 0) {
+        this.historyIndex--;
+      }
+    }
+
+    this.historyIndex = this.history.length - 1;
     this.notifyHistoryChanged();
   }
 
@@ -791,6 +898,16 @@ export class CanvasEngine {
     this.artisticCtx.putImageData(state.artisticData, 0, 0);
     this.stickers.stickers = state.stickersData.map(s => ({ ...s }));
     this.stickers.selectedSticker = null;
+
+    if (state.sourceData) {
+      this.sourceCtx.putImageData(state.sourceData, 0, 0);
+      this.updateFilteredLayer();
+      this._lastSourceData = state.sourceData;
+    } else if (this._sourceWasModified) {
+      this.sourceCtx.drawImage(this.originalCanvas, 0, 0);
+      this.updateFilteredLayer();
+      this._lastSourceData = null;
+    }
   }
 
   resetAll() {
@@ -799,6 +916,12 @@ export class CanvasEngine {
     this.maskCtx.clearRect(0, 0, w, h);
     this.artisticCtx.clearRect(0, 0, w, h);
     this.stickers.clear();
+    if (this._sourceWasModified) {
+      this.sourceCtx.drawImage(this.originalCanvas, 0, 0);
+      this.updateFilteredLayer();
+      this._sourceWasModified = false;
+      this._lastSourceData = null;
+    }
     this.saveHistoryState();
     this.render();
   }
@@ -821,7 +944,32 @@ export class CanvasEngine {
     this.render();
   }
 
-  // --- FULL RESOLUTION EXPORT ---
+  // --- FULL RESOLUTION EXPORT (BLOB & STREAMING) ---
+  async exportHighResBlob(format = 'image/jpeg', quality = 0.95) {
+    const w = this.sourceCanvas.width;
+    const h = this.sourceCanvas.height;
+    if (!w || !h) {
+      throw new Error('No image loaded to export');
+    }
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = w;
+    exportCanvas.height = h;
+    const eCtx = exportCanvas.getContext('2d');
+
+    // Draw composited photo layers
+    this.drawCompositedToContext(eCtx);
+
+    // Draw stickers without handles
+    this.stickers.render(eCtx, false);
+
+    return new Promise((resolve, reject) => {
+      exportCanvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Canvas blob export failed'));
+      }, format, quality);
+    });
+  }
+
   exportHighRes(format = 'image/jpeg', quality = 0.95) {
     const w = this.sourceCanvas.width;
     const h = this.sourceCanvas.height;

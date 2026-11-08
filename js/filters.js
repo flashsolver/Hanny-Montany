@@ -128,9 +128,10 @@ export class FilterEngine {
         break;
       }
 
+      case 'film_grain':
       case 'ai_cloaking': {
         const strength = Math.max(5, Math.round(5 + (intensity / 100) * 45));
-        this.applyAiCloaking(ctx, width, height, strength);
+        this.applyFilmGrain(ctx, width, height, strength);
         break;
       }
 
@@ -1003,8 +1004,8 @@ export class FilterEngine {
     ctx.putImageData(outImg, 0, 0);
   }
 
-  // --- ADVERSARIAL AI CLOAKING / ANTI-FACIAL RECOGNITION ---
-  static applyAiCloaking(ctx, width, height, strength) {
+  // --- FILM GRAIN & ANALOG TEXTURE ---
+  static applyFilmGrain(ctx, width, height, strength) {
     const srcImg = ctx.getImageData(0, 0, width, height);
     const src = srcImg.data;
     const outImg = ctx.createImageData(width, height);
@@ -1029,5 +1030,10 @@ export class FilterEngine {
     }
 
     ctx.putImageData(outImg, 0, 0);
+  }
+
+  // Backwards compatibility alias
+  static applyAiCloaking(ctx, width, height, strength) {
+    return this.applyFilmGrain(ctx, width, height, strength);
   }
 }
