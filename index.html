@@ -9,7 +9,7 @@
   <title>Hanny Montany • Privacy & Photo Studio</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/style.css?v=23">
+  <link rel="stylesheet" href="css/style.css?v=24">
 </head>
 <body>
   <div id="app-container">
@@ -56,7 +56,14 @@
     <main id="canvas-viewport" class="canvas-viewport">
       <!-- Viewport Utility HUD -->
       <div class="viewport-hud-top">
-        <button id="btn-reset-zoom" class="hud-pill" title="Reset pan & zoom" aria-label="Reset pan and zoom">100% Fit</button>
+        <button id="btn-pan-tool" class="hud-pill" title="Move / Pan photo (drag freely with 1 finger or mouse - H)" aria-label="Move photo" aria-pressed="false">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+          <span>Move</span>
+        </button>
+        <button id="btn-reset-zoom" class="hud-pill" title="Reset pan & zoom to fit" aria-label="Reset pan and zoom">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          <span>100% Fit</span>
+        </button>
         <button id="btn-compare" class="hud-pill" title="Press and hold to view original photo (or hold Spacebar)" aria-label="Hold to view original photo">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
           <span>Original</span>
@@ -149,7 +156,7 @@
         <div class="manual-scroll-area" role="tabpanel"></div>
 
         <div class="manual-footer">
-          <span class="manual-credit">v3.4.0 • made by FlashSolver for Hanim 🫶</span>
+          <span class="manual-credit">v3.5.0 • made by FlashSolver for Hanim 🫶</span>
           <button id="btn-done-manual" class="btn-pill primary">Got It</button>
         </div>
       </div>
@@ -476,7 +483,7 @@
 
       <!-- App Version & Copyright Dedication Footer -->
       <div class="app-footer-credit">
-        <span class="app-version">v3.4.0</span>
+        <span class="app-version">v3.5.0</span>
         <span class="footer-separator">•</span>
         <span class="footer-dedication">made by FlashSolver for Hanim 🫶</span>
       </div>

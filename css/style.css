@@ -248,8 +248,9 @@ html, body {
 }
 
 .hud-pill.active {
-  color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 .hud-pill:focus-visible {

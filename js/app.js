@@ -72,6 +72,7 @@ class BlurMosaicApp {
     this.btnInvert = document.getElementById('btn-invert');
     this.btnClear = document.getElementById('btn-clear');
     this.btnExport = document.getElementById('btn-export');
+    this.btnPanTool = document.getElementById('btn-pan-tool');
     this.btnResetZoom = document.getElementById('btn-reset-zoom');
     this.btnCompare = document.getElementById('btn-compare');
     this.btnManual = document.getElementById('btn-manual');
@@ -268,6 +269,9 @@ class BlurMosaicApp {
     // Mask Drawing Shape selection (Brush / Rect / Oval)
     this.shapePills.forEach(pill => {
       pill.addEventListener('click', () => {
+        if (this.engine.isPanToolActive) {
+          this.setPanToolActive(false);
+        }
         this.shapePills.forEach(p => {
           p.classList.remove('active');
           p.setAttribute('aria-pressed', 'false');
@@ -401,6 +405,12 @@ class BlurMosaicApp {
       const dimensions = hasImage ? { width: this.engine.sourceCanvas.width, height: this.engine.sourceCanvas.height } : null;
       this.modals.openExportModal(hasImage, this.btnExport, dimensions);
     });
+
+    if (this.btnPanTool) {
+      this.btnPanTool.addEventListener('click', () => {
+        this.setPanToolActive(!this.engine.isPanToolActive);
+      });
+    }
 
     this.btnResetZoom.addEventListener('click', () => {
       this.engine.fitToScreen();
@@ -570,6 +580,10 @@ class BlurMosaicApp {
         e.preventDefault();
         this.modals.openManualModal(this.btnManual);
         return;
+      } else if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        this.setPanToolActive(!this.engine.isPanToolActive);
+        return;
       } else if (e.key === '[') {
         const cur = parseInt(this.sliderSize.value);
         const next = Math.max(4, cur - 5);
@@ -668,6 +682,17 @@ class BlurMosaicApp {
     }
   }
 
+  setPanToolActive(active) {
+    this.engine.setPanTool(active);
+    if (this.btnPanTool) {
+      this.btnPanTool.classList.toggle('active', active);
+      this.btnPanTool.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    if (active) {
+      this.showToast('Move tool active: drag photo freely');
+    }
+  }
+
   async switchMode(mode) {
     this.currentMode = mode;
     this.engine.setMode(mode);
@@ -686,10 +711,13 @@ class BlurMosaicApp {
     this.carouselStickersContainer.style.display = 'none';
     this.shelfSmartAI.style.display = 'none';
 
-    // Disable eraser when switching modes
+    // Disable eraser and pan tool when switching modes
     this.engine.brush.setEraser(false);
     this.btnEraser.classList.remove('active');
     this.btnEraser.setAttribute('aria-pressed', 'false');
+    if (this.engine.isPanToolActive) {
+      this.setPanToolActive(false);
+    }
 
     switch (mode) {
       case 'blur':

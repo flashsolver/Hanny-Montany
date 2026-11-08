@@ -54,6 +54,7 @@ export const MANUAL_DATA = {
       <h4 class="manual-heading">Touch & Mouse Gestures</h4>
       <ul class="manual-list">
         <li><strong>1-Finger Drag:</strong> Paint blur mask or drag censor box/oval.</li>
+        <li><strong>Move Tool (Hand):</strong> Tap <em>Move</em> in the top HUD (or press <kbd>H</kbd>) to drag the photo freely with 1 finger or mouse.</li>
         <li><strong>2-Finger Pinch / Wheel:</strong> Zoom in and out freely.</li>
         <li><strong>2-Finger Drag / Middle Click:</strong> Pan across zoomed photo.</li>
         <li><strong>Tap Sticker:</strong> Select to drag, rotate (top pin), scale (bottom pin), or adjust opacity.</li>
@@ -61,6 +62,7 @@ export const MANUAL_DATA = {
 
       <h4 class="manual-heading" style="margin-top: 14px;">Keyboard Shortcuts</h4>
       <ul class="manual-list">
+        <li><kbd>H</kbd>: Toggle Move / Pan tool (drag photo freely with 1 finger or mouse).</li>
         <li><kbd>Space</kbd> (Hold): Hold to view untouched original photo.</li>
         <li><kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Cmd</kbd> + <kbd>Z</kbd>: Undo last stroke or sticker action.</li>
         <li><kbd>Ctrl</kbd> + <kbd>Y</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd>: Redo last action.</li>

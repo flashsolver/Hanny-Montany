@@ -69,6 +69,10 @@ export class CanvasEngine {
     this.filterColor = '#000000';
     this.filterAngle = 0;
     this._filterDirty = true;
+    this._hasEffects = false;
+    this._hasArtistic = false;
+    this._filterInputBuffer = null;
+    this._filterInputCtx = null;
 
     // State & History (~150MB dynamic memory budget)
     this.history = [];
@@ -84,6 +88,7 @@ export class CanvasEngine {
     // Interaction state
     this.activePointers = new Map();
     this.isPanning = false;
+    this.isPanToolActive = false;
     this.prevPinchDist = 0;
     this.panStart = { x: 0, y: 0 };
 
@@ -155,6 +160,9 @@ export class CanvasEngine {
           this.stickers.clear();
           this.history = [];
           this.historyIndex = -1;
+          this._hasEffects = false;
+          this._hasArtistic = false;
+          this._filterDirty = true;
 
           this.fitToScreen();
           this.updateFilteredLayer();
@@ -221,6 +229,9 @@ export class CanvasEngine {
     this.stickers.clear();
     this.history = [];
     this.historyIndex = -1;
+    this._hasEffects = false;
+    this._hasArtistic = false;
+    this._filterDirty = true;
 
     this.fitToScreen();
     this.updateFilteredLayer();
@@ -310,6 +321,24 @@ export class CanvasEngine {
     }
   }
 
+  getFilterSource(w, h) {
+    if (!this._hasEffects) {
+      return this.sourceCanvas;
+    }
+    if (!this._filterInputBuffer) {
+      this._filterInputBuffer = document.createElement('canvas');
+      this._filterInputCtx = this._filterInputBuffer.getContext('2d');
+    }
+    if (this._filterInputBuffer.width !== w || this._filterInputBuffer.height !== h) {
+      this._filterInputBuffer.width = w;
+      this._filterInputBuffer.height = h;
+    }
+    this._filterInputCtx.clearRect(0, 0, w, h);
+    this._filterInputCtx.drawImage(this.sourceCanvas, 0, 0);
+    this._filterInputCtx.drawImage(this.effectsCanvas, 0, 0);
+    return this._filterInputBuffer;
+  }
+
   ensureFilteredLayer() {
     if (!this._filterDirty && this.filteredCanvas.width === this.sourceCanvas.width && this.filteredCanvas.height === this.sourceCanvas.height) {
       return;
@@ -328,8 +357,10 @@ export class CanvasEngine {
       this.filteredCanvas.height = h;
     }
 
+    const filterSource = this.getFilterSource(w, h);
+
     FilterEngine.applyFilter(
-      this.sourceCanvas,
+      filterSource,
       this.filteredCanvas,
       this.currentFilter,
       this.filterIntensity,
@@ -345,6 +376,13 @@ export class CanvasEngine {
 
   setMode(mode) {
     this.activeMode = mode;
+  }
+
+  setPanTool(active) {
+    this.isPanToolActive = !!active;
+    if (this.displayCanvas) {
+      this.displayCanvas.style.cursor = this.isPanToolActive ? 'grab' : '';
+    }
   }
 
   bakeCurrentFilterStroke() {
@@ -368,6 +406,9 @@ export class CanvasEngine {
 
     // Clear transient maskCanvas
     this.maskCtx.clearRect(0, 0, w, h);
+
+    this._hasEffects = true;
+    this._filterDirty = true;
   }
 
   setFilterAngle(angle) {
@@ -439,11 +480,12 @@ export class CanvasEngine {
 
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // Middle-click pan or Spacebar pan
-    if (e.button === 1 || e.buttons === 4 || e.altKey) {
+    // Hand/Pan tool active, middle-click pan, or Alt-drag pan
+    if (this.isPanToolActive || e.button === 1 || e.buttons === 4 || e.altKey) {
       this.isPanning = true;
       this.isUserTransformed = true;
       this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY };
+      if (this.displayCanvas) this.displayCanvas.style.cursor = 'grabbing';
       return;
     }
 
@@ -578,6 +620,9 @@ export class CanvasEngine {
     if (this.activePointers.size < 2) {
       this.prevPinchDist = 0;
       this.isPanning = false;
+      if (this.displayCanvas) {
+        this.displayCanvas.style.cursor = this.isPanToolActive ? 'grab' : '';
+      }
     }
 
     if (this.stickers && this.stickers.activeAction) {
@@ -590,7 +635,11 @@ export class CanvasEngine {
     if (this.drawShape === 'brush') {
       if (this.brush && this.brush.isDrawing) {
         this.brush.endStroke();
-        if (this.activeMode !== 'smart-ai' && !this.brush.isEraser && !this.brush.isArtistic()) {
+        if (this.brush.isEraser) {
+          this._filterDirty = true;
+        } else if (this.brush.isArtistic()) {
+          this._hasArtistic = true;
+        } else if (this.activeMode !== 'smart-ai') {
           this.bakeCurrentFilterStroke();
         }
         this._isDrawingLiveStroke = false;
@@ -610,6 +659,9 @@ export class CanvasEngine {
     this.activePointers.clear();
     this.prevPinchDist = 0;
     this.isPanning = false;
+    if (this.displayCanvas) {
+      this.displayCanvas.style.cursor = this.isPanToolActive ? 'grab' : '';
+    }
     this.shapeStart = null;
     this.shapeCurrent = null;
     this._isDrawingLiveStroke = false;
@@ -654,11 +706,13 @@ export class CanvasEngine {
         ctx.fill();
         ctx.restore();
       }
+      this._filterDirty = true;
       return;
     }
 
     targetCtx.save();
     if (isArtistic) {
+      this._hasArtistic = true;
       targetCtx.globalCompositeOperation = 'source-over';
       targetCtx.fillStyle = this.brush.color;
     } else {
@@ -903,9 +957,9 @@ export class CanvasEngine {
     if (!w || !h) return;
 
     // Save effects image data, mask image data, artistic image data, and clone stickers
-    const effectsData = this.effectsCtx.getImageData(0, 0, w, h);
-    const maskData = this.maskCtx.getImageData(0, 0, w, h);
-    const artisticData = this.artisticCtx.getImageData(0, 0, w, h);
+    const effectsData = this._hasEffects ? this.effectsCtx.getImageData(0, 0, w, h) : null;
+    const maskData = (this.maskCanvas && this.maskCanvas.width) ? this.maskCtx.getImageData(0, 0, w, h) : null;
+    const artisticData = this._hasArtistic ? this.artisticCtx.getImageData(0, 0, w, h) : null;
     const stickersData = this.stickers.stickers.map(s => ({
       ...s
     }));
@@ -932,7 +986,10 @@ export class CanvasEngine {
     };
 
     // Calculate dynamic byte footprint for memory budget
-    let byteSize = effectsData.data.byteLength + maskData.data.byteLength + artisticData.data.byteLength;
+    let byteSize = 0;
+    if (effectsData) byteSize += effectsData.data.byteLength;
+    if (maskData) byteSize += maskData.data.byteLength;
+    if (artisticData) byteSize += artisticData.data.byteLength;
     if (sourceData && !sourceIsShared) {
       byteSize += sourceData.data.byteLength;
     }
@@ -987,16 +1044,35 @@ export class CanvasEngine {
 
   restoreHistoryState(state) {
     if (!state) return;
+    const w = this.sourceCanvas.width;
+    const h = this.sourceCanvas.height;
+
     if (state.effectsData) {
       this.effectsCtx.putImageData(state.effectsData, 0, 0);
+      this._hasEffects = true;
     } else {
-      this.effectsCtx.clearRect(0, 0, this.sourceCanvas.width, this.sourceCanvas.height);
+      this.effectsCtx.clearRect(0, 0, w, h);
+      this._hasEffects = false;
     }
-    this.maskCtx.putImageData(state.maskData, 0, 0);
-    this.artisticCtx.putImageData(state.artisticData, 0, 0);
+
+    if (state.maskData) {
+      this.maskCtx.putImageData(state.maskData, 0, 0);
+    } else {
+      this.maskCtx.clearRect(0, 0, w, h);
+    }
+
+    if (state.artisticData) {
+      this.artisticCtx.putImageData(state.artisticData, 0, 0);
+      this._hasArtistic = true;
+    } else {
+      this.artisticCtx.clearRect(0, 0, w, h);
+      this._hasArtistic = false;
+    }
+
     this.stickers.stickers = state.stickersData.map(s => ({ ...s }));
     this.stickers.selectedSticker = null;
     this._isDrawingLiveStroke = false;
+    this._filterDirty = true;
 
     if (state.sourceData) {
       this.sourceCtx.putImageData(state.sourceData, 0, 0);
@@ -1017,6 +1093,9 @@ export class CanvasEngine {
     this.artisticCtx.clearRect(0, 0, w, h);
     this.stickers.clear();
     this._isDrawingLiveStroke = false;
+    this._hasEffects = false;
+    this._hasArtistic = false;
+    this._filterDirty = true;
     if (this._sourceWasModified) {
       this.sourceCtx.drawImage(this.originalCanvas, 0, 0);
       this.updateFilteredLayer();
@@ -1084,6 +1163,8 @@ export class CanvasEngine {
 
     this.effectsCtx.clearRect(0, 0, w, h);
     this.effectsCtx.drawImage(buf, 0, 0);
+    this._hasEffects = true;
+    this._filterDirty = true;
     this.saveHistoryState();
     this.render();
   }
